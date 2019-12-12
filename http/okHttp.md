@@ -1,5 +1,19 @@
 # OkHttpClient
 
+# 为什么使用okhttp
+
+连接池，http1.1keep-alive，http2多路复用，高性能。
+
+支持https和http2
+
+支持异步请求，线程池
+
+支持缓存
+
+支持请求重试，同一个域名下可能有多个ip，dns解析出来，ok请求失败，会尝试多个ip
+
+弱连接，判断空闲连接，防止内存泄漏导致oom
+
 # 1.基本使用
 
 maven依赖
@@ -309,7 +323,9 @@ final class RealCall implements Call {
       }
       captureCallStackTrace();
       try {
+          //加入runningSyncCalls，便于全部取消这类任务
         client.dispatcher().executed(this);
+          //直接执行任务链，没有最大请求数量的限制
         Response result = getResponseWithInterceptorChain();
         if (result == null) throw new IOException("Canceled");
         return result;
@@ -432,7 +448,7 @@ Dispatcher是一个任务调度器，它内部维护了三个双端队列：
 - runningAsyncCalls：**正在运行**的**异步**请求
 - runningSyncCalls：正在运行的**同步**请求
 
-记得异步请求与同步骑牛，并利用ExecutorService来调度执行AsyncCall。
+记得异步请求与同步请求，并利用ExecutorService来调度执行AsyncCall。
 
 同步请求就直接把请求添加到正在运行的同步请求队列runningSyncCalls中，异步请求会做个判断：
 
@@ -481,7 +497,7 @@ final class RealCall implements Call {
 
 # 3.拦截器
 
-okhttp的拦截器是责任链模式，其实本质上是个递归
+okhttp的拦截器是责任链模式
 
 ```java
 //RealInterceptorChain implements Interceptor.Chain
@@ -1699,3 +1715,238 @@ OkHttp具有快速恢复性，可以从一些连接失败中自动恢复。在�
 ## 可用性
 
 事件在OkHttp 3.11中作为公共API可用使用。未来的版本可能会引入新的事件类型；您需要重写相应的方法来处理它们。
+
+
+
+# 7.注意点
+
+
+
+## 不处理响应导致无限创建连接
+
+
+
+```java
+public static String postExecute(String mediaType, String url, String content, Map<String,String> headers) throws IOException {
+    //用封装好的request构造出一个Call->RealCall,创建一个事件监听器放入call
+    Response response = getInstance().newCall(buildRequest(mediaType,url,content,headers)).execute();
+    OkHttpClient instance = getInstance();
+    //String result=response.body().string();
+    return "{\"error\":\"test\"}";
+}
+```
+
+
+
+```java
+//StreamAllocation.class
+private void release(RealConnection connection) {
+  for (int i = 0, size = connection.allocations.size(); i < size; i++) {
+    Reference<StreamAllocation> reference = connection.allocations.get(i);
+    if (reference.get() == this) {
+      connection.allocations.remove(i);
+      return;
+    }
+  }
+  throw new IllegalStateException();
+}
+```
+
+不处理Response的body，会导致无限制创建连接，因为连接的释放是在读取响应的body之后，如果不处理，连接会一直处于活跃状态，无法服用，无法回收。
+
+
+
+## 连接池最大请求参数只对异步请求有效
+
+```java
+  private int maxRequests = 64;
+  //host是域名/ip，如www.baidu.com和127.0.0.1(不包含端口号)
+  private int maxRequestsPerHost = 5;
+```
+
+
+- readyAsyncCalls：**准备运行**的**异步**请求
+- runningAsyncCalls：**正在运行**的**异步**请求
+- runningSyncCalls：正在运行的**同步**请求
+
+同步请求，把call放入runningSyncCalls后，直接执行任务链，**不受最大请求参数限制**。
+
+异步请求，如果正在运行的异步请求不超过64，而且同一个host下的异步请求不得超过5个则将请求添加到正在运行的同步请求队列中runningAsyncCalls并开始执行任务链，否则就添加到readyAsyncCalls继续等待。
+
+
+
+## 框架自带的重试机制和应用层面的重试无关
+
+### 7.1重定向
+
+```java
+  /**
+   * 最大重定向次数
+   * How many redirects and auth challenges should we attempt? Chrome follows 21 redirects; Firefox,
+   * curl, and wget follow 20; Safari follows 16; and HTTP/1.0 recommends 5.
+   */
+  private static final int MAX_FOLLOW_UPS = 20;
+```
+
+这个参数是用来限制重定向的，与重连机制无关
+
+目的是，怀疑某些路径会引起不断重试。最终内存泄漏
+
+由于出现异常，进行重试是在一个死循环中，而且处理后不是 continue 就是 throw 出异常，所以必定不受继续请求的最大次数 MAX_FOLLOW_UPS 限制。于是，如果出现某个路径，导致 recover 的判断每次都可以通过，那么就死循环了，该连接就无法释放，积累起来最后触发 OOM
+
+
+### 7.2 代理IP重试
+
+```java
+OkHttpClient okHttpClient = new OkHttpClient.Builder()
+       ...
+        //开启重试机制，默认是开启的
+       .retryOnConnectionFailure(true)
+       ...
+       .build();
+```
+
+okhttp的重试其实是不同route的重试，如果一个host只有一个ip，也就没有重试了。
+
+比如 DNS 对域名解析后会返回多个 IP。比如有三个 IP，IP1，IP2 和 IP3，第一个连接超时了，会换成第二个；第二个又超时了，换成第三个；第三个还是不给力，那么请求就结束了
+
+应用层面的重试机制需要自己实现拦截器。
+
+
+
+# 8.疑惑
+
+
+
+## 为什么要使用弱引用作为引用计数？
+
+目的应该为了防止oom，因为这样一个请求执行完毕，但是没有关闭response body，导致连接无法释放，但是使用弱引用，这些未关闭的流StreamAllocation就可以被垃圾回收，防止了oom的出现，只是会有一个弱引用仍然存在于RealConnection，当连接池清理空闲连接时，会发现这些泄漏的连接。
+
+```java
+/**
+   * Prunes any leaked allocations and then returns the number of remaining live allocations on
+   * {@code connection}. Allocations are leaked if the connection is tracking them but the
+   * application code has abandoned them. Leak detection is imprecise and relies on garbage
+   * collection.
+   */
+  private int pruneAndGetAllocationCount(RealConnection connection, long now) {
+    List<Reference<StreamAllocation>> references = connection.allocations;
+     //遍历弱引用列表
+    for (int i = 0; i < references.size(); ) {
+      Reference<StreamAllocation> reference = references.get(i);
+       //若StreamAllocation被使用则接着循环
+      if (reference.get() != null) {
+        i++;
+        continue;
+      }
+
+      // We've discovered a leaked allocation. This is an application bug.
+      StreamAllocation.StreamAllocationReference streamAllocRef =
+          (StreamAllocation.StreamAllocationReference) reference;
+      String message = "A connection to " + connection.route().address().url()
+          + " was leaked. Did you forget to close a response body?";
+      Platform.get().logCloseableLeak(message, streamAllocRef.callStackTrace);
+       //若StreamAllocation未被使用则移除引用，这边注释为泄露
+      references.remove(i);
+      connection.noNewStreams = true;
+
+      // If this was the last allocation, the connection is eligible for immediate eviction.
+      //如果列表为空则说明此连接没有被引用了，则返回0，表示此连接是空闲连接
+      if (references.isEmpty()) {
+        connection.idleAtNanos = now - keepAliveDurationNs;
+        return 0;
+      }
+    }
+    return references.size();
+  }
+```
+
+
+
+使用okhttp持续同步发起请求，不关闭response body，使用jmap获取存活对象内存信息，StreamAllocation总是为1，无法释放连接，导致连接池无限增长，但是因为使用的弱引用，不影响StreamAllocation垃圾回收，RealConnection和StreamAllocationReference则是随着请求的增多而增多，因为没有关闭response body，导致连接无法释放，但是当连接池进行空闲连接回收的时候，会发现弱引用指向的对象为空，发生了内存泄漏，因为没有关闭response body。
+
+```
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+ 352:             1             72  okhttp3.internal.connection.RealConnection
+ 372:             1             64  okhttp3.internal.connection.StreamAllocation
+ 422:             1             48  okhttp3.internal.connection.RouteSelector
+ 498:             1             32  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 569:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 670:             1             16  okhttp3.internal.connection.RouteDatabase
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+ 219:             3            216  okhttp3.internal.connection.RealConnection
+ 313:             3             96  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 376:             1             64  okhttp3.internal.connection.StreamAllocation
+ 422:             1             48  okhttp3.internal.connection.RouteSelector
+ 567:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 667:             1             16  okhttp3.internal.connection.RouteDatabase
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+  27:           264          19008  okhttp3.internal.connection.RealConnection
+  55:           264           8448  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 379:             1             64  okhttp3.internal.connection.StreamAllocation
+ 422:             1             48  okhttp3.internal.connection.RouteSelector
+ 568:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 669:             1             16  okhttp3.internal.connection.ConnectInterceptor
+ 670:             1             16  okhttp3.internal.connection.RouteDatabase
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+  80:            61           4392  okhttp3.internal.connection.RealConnection
+ 113:            61           1952  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 427:             1             64  okhttp3.internal.connection.StreamAllocation
+ 477:             1             48  okhttp3.internal.connection.RouteSelector
+ 637:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 740:             1             16  okhttp3.internal.connection.ConnectInterceptor
+ 741:             1             16  okhttp3.internal.connection.RouteDatabase
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+  31:           209          15048  okhttp3.internal.connection.RealConnection
+  67:           209           6688  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 423:             1             64  okhttp3.internal.connection.StreamAllocation
+ 473:             1             48  okhttp3.internal.connection.RouteSelector
+ 634:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 737:             1             16  okhttp3.internal.connection.ConnectInterceptor
+ 738:             1             16  okhttp3.internal.connection.RouteDatabase
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+  17:           700          50400  okhttp3.internal.connection.RealConnection
+  33:           700          22400  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 417:             1             64  okhttp3.internal.connection.StreamAllocation
+ 470:             1             48  okhttp3.internal.connection.RouteSelector
+ 625:             1             24  okhttp3.internal.connection.ConnectionSpecSelector
+ 626:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 731:             1             16  okhttp3.internal.connection.ConnectInterceptor
+ 732:             1             16  okhttp3.internal.connection.RouteDatabase
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+  16:           927          66744  okhttp3.internal.connection.RealConnection
+  29:           927          29664  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 416:             1             64  okhttp3.internal.connection.StreamAllocation
+ 465:             1             48  okhttp3.internal.connection.RouteSelector
+ 618:             1             24  okhttp3.internal.connection.ConnectionSpecSelector
+ 619:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 723:             1             16  okhttp3.internal.connection.ConnectInterceptor
+ 724:             1             16  okhttp3.internal.connection.RouteDatabase
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+  23:           431          31032  okhttp3.internal.connection.RealConnection
+ 151:            27            864  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 421:             1             64  okhttp3.internal.connection.StreamAllocation
+ 471:             1             48  okhttp3.internal.connection.RouteSelector
+ 629:             1             24  okhttp3.internal.connection.ConnectionSpecSelector
+ 630:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 735:             1             16  okhttp3.internal.connection.ConnectInterceptor
+ 736:             1             16  okhttp3.internal.connection.RouteDatabase
+
+C:\Users\mcmc>jmap -histo:live 765468|findstr okhttp3.internal.connection
+  85:            43           3096  okhttp3.internal.connection.RealConnection
+ 126:            43           1376  okhttp3.internal.connection.StreamAllocation$StreamAllocationReference
+ 421:             1             64  okhttp3.internal.connection.StreamAllocation
+ 471:             1             48  okhttp3.internal.connection.RouteSelector
+ 627:             1             24  okhttp3.internal.connection.ConnectionSpecSelector
+ 628:             1             24  okhttp3.internal.connection.RouteSelector$Selection
+ 733:             1             16  okhttp3.internal.connection.ConnectInterceptor
+ 734:             1             16  okhttp3.internal.connection.RouteDatabase
+```

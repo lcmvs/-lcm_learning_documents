@@ -24,7 +24,7 @@
 
 ### 1.2.2锁粒度：
 
-表锁：服务器层，如alter table，myisam只支持表表锁
+表锁：服务器层，如alter table，myisam只支持表锁
 
 行锁：存储引擎层实现，InnoDB和XtraDB实现了行锁
 
@@ -42,21 +42,35 @@
 
 #### 隔离级别
 
-read uncommitted 未提交读
+##### ru
 
-脏读
+read uncommitted 未提交读 
 
-read committed 提交读
+允许脏读，也就是说一个事务有可能读到另一个事务未提交的数据
 
-不可重复读
+##### 脏读
+
+##### rc
+
+read committed 提交读 
+
+只能读到已经提交的数据，Oracle等多数数据库的默认隔离级别
+
+##### 不可重复读
+
+##### rr
 
 repeatable read 可重复读 （MySQL默认隔离级别）
 
-幻读，mvcc解决了幻读
+##### 幻读
 
-serializable 可串行化
 
-加锁读，性能差
+
+##### serializable
+
+可串行化
+
+加锁读，完全串行化，每次读都需要获得表级共享锁，读写阻塞，性能差
 
 #### 死锁：
 
@@ -106,6 +120,10 @@ set session transaction isolation level read committed;
 innodb的mvcc，通过每行记录增加两个隐藏的列实现的，一个保存了创建时间，一个保存删除时间，这个时间其实是系统版本号，每开始一个新的事务，系统版本号都是自动递增。
 
 在repeatable read和read committed两个隔离级别下工作。
+
+在事务隔离级别READ COMMITTED和REPEATABLE READ（InnoDB存储引擎的默认事务隔离级别） 下， InnoDB存储引擎使用非锁定的一致性读。 然而， 对于快照数据的定义却不相同。
+在READ COMMITTED事务隔离级别下， 对于快照数据， 非一致性读总是读取被锁定行的**最新一份**快照数据。 
+而在REPEATABLE READ事务隔离级别下， 对于快照数据， 非一致性读总是读取事务**开始时**的行数据版本。 
 
 ## 1.4存储引擎：
 
@@ -322,6 +340,12 @@ MySQL大部分修改表结构的操作都是用新的结构创建一个空表，
 
 实际上大多数存储引擎使用的是b+tree索引，也就是每个叶子节点包含一个指向下一个叶子节点的指针，便于范围遍历。
 二叉树、二叉排序树、平衡二叉树(avl树，红黑树)、B-树、B+树
+
+[树型结构的基本概念](https://www.cnblogs.com/xrq730/p/5187032.html)
+
+[AVL树，红黑树，B树，B+树，Trie树都分别应用在哪些现实场景中？](https://www.zhihu.com/question/30527705)
+
+
 
 ![B+Tree结构](assets/1564024695634.png)
 

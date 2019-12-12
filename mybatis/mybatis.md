@@ -8,6 +8,15 @@ https://blog.51cto.com/13714880/2112520
 
 https://www.cnblogs.com/chenmz1995/p/10300875.html
 
+```java
+//注解方式
+@Insert({"INSERT INTO driver_team\n" +
+        "(driver_team_code, driver_company_id, driver_leader_id, remark)\n" +
+        "VALUES (#{driverTeamCode}, #{driverCompanyId}, #{driverLeaderId}, #{remark})"})
+@Options(useGeneratedKeys=true, keyProperty="driverTeamId", keyColumn="driver_team_id")
+int insertTeam(DriverTeam entity);
+```
+
 ```xml
    <insert id="insertList" parameterType="java.util.List" keyProperty="vehicleGnssId" keyColumn="vehicle_gnss_id" useGeneratedKeys="true">
    INSERT INTO vehicle_gnss
