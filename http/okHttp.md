@@ -387,8 +387,6 @@ final class AsyncCall extends NamedRunnable {
       }
     }
   }
-
-复制代码
 ```
 
 从上面代码可以看出，不管是同步请求还是异步请求最后都会通过getResponseWithInterceptorChain()获取Response，只不过异步请求多了个线程调度，异步 执行的过程。
@@ -399,63 +397,166 @@ final class AsyncCall extends NamedRunnable {
 
 ```java
 public final class Dispatcher {
-    
-      private int maxRequests = 64;
-      //host是域名/ip，如www.baidu.com和127.0.0.1(不包含端口号)
-      private int maxRequestsPerHost = 5;
-    
-      private final Deque<AsyncCall> readyAsyncCalls = new ArrayDeque<>();
-      private final Deque<AsyncCall> runningAsyncCalls = new ArrayDeque<>();
-      private final Deque<RealCall> runningSyncCalls = new ArrayDeque<>();
-      
-      synchronized void executed(RealCall call) {
-        runningSyncCalls.add(call);
-      }
+    //最大异步请求数量
+    private int maxRequests = 64;
+    //host是域名/ip，如www.baidu.com和127.0.0.1(不包含端口号)
+    //每个host最大异步请求数量
+    private int maxRequestsPerHost = 5;
+    //异步请求处理线程池，懒加载
+    private @Nullable ExecutorService executorService;
 
-      synchronized void enqueue(AsyncCall call) {
-      //正在运行的异步请求不得超过64，同一个host下的异步请求不得超过5个
-      if (runningAsyncCalls.size() < maxRequests && runningCallsForHost(call) < maxRequestsPerHost) {
-        runningAsyncCalls.add(call);
-        executorService().execute(call);
-      } else {
-        //超过最大数量的异步请求放入准备队列，每个异步请求调用结束finish会调用promoteCalls()入队
-        readyAsyncCalls.add(call);
+    //等待的异步请求链表
+    private final Deque<AsyncCall> readyAsyncCalls = new ArrayDeque<>();
+    //正在执行的异步请求链表
+    private final Deque<AsyncCall> runningAsyncCalls = new ArrayDeque<>();
+    //正在执行的同步请求链表
+    private final Deque<RealCall> runningSyncCalls = new ArrayDeque<>();
+
+  
+    public synchronized ExecutorService executorService() {
+     if (executorService == null) {
+      executorService = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 60, TimeUnit.SECONDS,
+          new SynchronousQueue<Runnable>(), Util.threadFactory("OkHttp Dispatcher", false));
+    }
+    return executorService;
+  }      
+}
+```
+
+### 异步请求
+
+异步请求是构造一个AsyncCall，然后传给Dispatcher，进行调度，AsyncCall实际上是一个Runnable，最终将这个Runnable交给Dispatcher内的executorService执行。
+
+```java
+//RealCall.java
+@Override public void enqueue(Callback responseCallback) {
+  synchronized (this) {
+    if (executed) throw new IllegalStateException("Already Executed");
+    executed = true;
+  }
+  captureCallStackTrace();
+  eventListener.callStart(this);
+  client.dispatcher().enqueue(new AsyncCall(responseCallback));
+}
+
+  final class AsyncCall extends NamedRunnable {
+    private final Callback responseCallback;
+
+    AsyncCall(Callback responseCallback) {
+      super("OkHttp %s", redactedUrl());
+      this.responseCallback = responseCallback;
+    }
+
+    @Override protected void execute() {
+      boolean signalledCallback = false;
+      try {
+        Response response = getResponseWithInterceptorChain();
+        if (retryAndFollowUpInterceptor.isCanceled()) {
+          signalledCallback = true;
+          responseCallback.onFailure(RealCall.this, new IOException("Canceled"));
+        } else {
+          signalledCallback = true;
+          responseCallback.onResponse(RealCall.this, response);
+        }
+      } catch (IOException e) {
+        if (signalledCallback) {
+          // Do not signal the callback twice!
+          Platform.get().log(INFO, "Callback failure for " + toLoggableString(), e);
+        } else {
+          eventListener.callFailed(RealCall.this, e);
+          responseCallback.onFailure(RealCall.this, e);
+        }
+      } finally {
+        client.dispatcher().finished(this);
       }
     }
+  }
+```
+
+```java
+//Dispatcher.java  
+synchronized void enqueue(AsyncCall call) {
+  //正在运行的异步请求不得超过maxRequests，同一个host下的异步请求不得超过maxRequestsPerHost
+  if (runningAsyncCalls.size() < maxRequests && runningCallsForHost(call) < maxRequestsPerHost) {
+    runningAsyncCalls.add(call);
+    executorService().execute(call);
+  } else {
+    //超过最大数量的异步请求放入准备队列，每个异步请求调用结束finish会调用promoteCalls()入队
+    readyAsyncCalls.add(call);
+  }
+  
+  //执行完一个请求
+  private <T> void finished(Deque<T> calls, T call, boolean promoteCalls) {
+    int runningCallsCount;
+    Runnable idleCallback;
+    //加锁，同一时间只能有一个线程在调度Dispatcher
+    synchronized (this) {
+      if (!calls.remove(call)) throw new AssertionError("Call wasn't in-flight!");
+      //调度等待队列
+      if (promoteCalls) promoteCalls();
+      runningCallsCount = runningCallsCount();
+      idleCallback = this.idleCallback;
+    }
+
+    if (runningCallsCount == 0 && idleCallback != null) {
+      idleCallback.run();
+    }
+  }
     
-    private void promoteCalls() {
+  private void promoteCalls() {
     if (runningAsyncCalls.size() >= maxRequests) return; // Already running max capacity.
     if (readyAsyncCalls.isEmpty()) return; // No ready calls to promote.
-
+    //遍历等待队列
     for (Iterator<AsyncCall> i = readyAsyncCalls.iterator(); i.hasNext(); ) {
       AsyncCall call = i.next();
-
+      //如果小于maxRequestsPerHost，执行该Runnable
       if (runningCallsForHost(call) < maxRequestsPerHost) {
         i.remove();
         runningAsyncCalls.add(call);
         executorService().execute(call);
       }
-
+      //如果>= maxRequests，结束遍历
       if (runningAsyncCalls.size() >= maxRequests) return; // Reached max capacity.
     }
+  }
+```
+
+
+### 同步请求
+
+同步请求其实就是在当前线程执行任务链了。
+
+```java
+//RealCall.java
+@Override public Response execute() throws IOException {
+  synchronized (this) {
+    if (executed) throw new IllegalStateException("Already Executed");
+    executed = true;
+  }
+  captureCallStackTrace();
+  eventListener.callStart(this);
+  try {
+    client.dispatcher().executed(this);
+    Response result = getResponseWithInterceptorChain();
+    if (result == null) throw new IOException("Canceled");
+    return result;
+  } catch (IOException e) {
+    eventListener.callFailed(this, e);
+    throw e;
+  } finally {
+    client.dispatcher().finished(this);
   }
 }
 ```
 
-Dispatcher是一个任务调度器，它内部维护了三个双端队列：
 
-- readyAsyncCalls：**准备运行**的**异步**请求
-- runningAsyncCalls：**正在运行**的**异步**请求
-- runningSyncCalls：正在运行的**同步**请求
 
-记得异步请求与同步请求，并利用ExecutorService来调度执行AsyncCall。
-
-同步请求就直接把请求添加到正在运行的同步请求队列runningSyncCalls中，异步请求会做个判断：
-
-如果正在运行的异步请求不超过64，而且同一个host下的异步请求不得超过5个则将请求添加到正在运行的同步请求队列中runningAsyncCalls并开始 执行请求，否则就添加到readyAsyncCalls继续等待。
-
-讲完Dispatcher里的实现，我们继续来看getResponseWithInterceptorChain()的实现，这个方法才是真正发起请求并处理请求的地方。
-
+```java
+ //Dispatcher.java   
+ synchronized void executed(RealCall call) {
+    runningSyncCalls.add(call);
+  }
+```
 ## 2.4 请求的处理
 
 ```java
@@ -465,7 +566,7 @@ final class RealCall implements Call {
         List<Interceptor> interceptors = new ArrayList<>();
         //这里可以看出，我们自定义的Interceptor会被优先执行
         interceptors.addAll(client.interceptors());
-        //添加拦截重试和重定向烂机器
+        //添加拦截重试和重定向拦截器
         interceptors.add(retryAndFollowUpInterceptor);
         interceptors.add(new BridgeInterceptor(client.cookieJar()));
         interceptors.add(new CacheInterceptor(client.internalCache()));
@@ -483,7 +584,7 @@ final class RealCall implements Call {
 
 ```
 
-短短几行代码，完成了对请求的所有处理过程，Interceptor将网络请求、缓存、透明压缩等功能统一了起来，它的实现采用责任链模式，各司其职， 每个功能都是一个Interceptor，上一级处理完成以后传递给下一级，它们最后连接成了一个Interceptor.Chain。它们的功能如下：
+短短几行代码，完成了对请求的所有处理过程，Interceptor将网络请求、缓存、透明压缩等功能统一了起来，它的实现采用**责任链模式**，各司其职， 每个功能都是一个Interceptor，上一级处理完成以后传递给下一级，它们最后连接成了一个Interceptor.Chain。它们的功能如下：
 
 - RetryAndFollowUpInterceptor：负责重定向。
 - BridgeInterceptor：负责把用户构造的请求转换为发送给服务器的请求，把服务器返回的响应转换为对用户友好的响应。
@@ -1152,68 +1253,13 @@ public final class CallServerInterceptor implements Interceptor {
 
 
 
-
-# 4.线程池
+# 4.连接池
 
 okhttp内部实现了线程池，所有使用单例会更加合适。
 
 我们知道在负责的网络环境下，频繁的进行建立Sokcet连接（TCP三次握手）和断开Socket（TCP四次分手）是非常消耗网络资源和浪费时间的，HTTP中的keepalive连接对于 降低延迟和提升速度有非常重要的作用。
 
 复用连接就需要对连接进行管理，这里就引入了连接池的概念。
-
-Okhttp支持5个并发KeepAlive，默认链路生命为5分钟(链路空闲后，保持存活的时间)，连接池有ConectionPool实现，对连接进行回收和管理。
-
-
-```java
-//okhttp中使用的线程池
-private static final Executor executor = new ThreadPoolExecutor(0 /* corePoolSize */,
-    Integer.MAX_VALUE /* maximumPoolSize */, 60L /* keepAliveTime */, TimeUnit.SECONDS,
-    new SynchronousQueue<Runnable>(), Util.threadFactory("OkHttp ConnectionPool", true));
-```
-```java
-public final class Dispatcher {
-  /**
-   *如果正在执行的异步请求任务数量小于maxRequests 并且单一Host的请求数小于maxRequestsPerHost，那么将    *任务加入到正在执行的任务队列中，并且调用线程池的execute方法准备执行任务，否则将任务添加到待执行任务队    *列中。
-   */
-  private int maxRequests = 64;
-  private int maxRequestsPerHost = 5;
-  private @Nullable Runnable idleCallback;
-
-  /** Executes calls. Created lazily. */
-  private @Nullable ExecutorService executorService;
-
-  /** Ready async calls in the order they'll be run. */
-  private final Deque<AsyncCall> readyAsyncCalls = new ArrayDeque<>();
-
-  /** Running asynchronous calls. Includes canceled calls that haven't finished yet. */
-  private final Deque<AsyncCall> runningAsyncCalls = new ArrayDeque<>();
-
-  /** Running synchronous calls. Includes canceled calls that haven't finished yet. */
-  private final Deque<RealCall> runningSyncCalls = new ArrayDeque<>();
-}
-```
-
-```java
-private static final OkHttpClient client;
-
-static {
-    Dispatcher dispatcher=new Dispatcher();
-    //每个host最大并发连接数
-    dispatcher.setMaxRequestsPerHost(Runtime.getRuntime().availableProcessors());
-    client = new OkHttpClient.Builder()
-        //设置连接池
-            .connectionPool(new ConnectionPool(Runtime.getRuntime().availableProcessors(),5L, TimeUnit.MINUTES))
-            .retryOnConnectionFailure(true)
-            .dispatcher(dispatcher)
-            .build();
-}
-```
-
-
-
-# 5.连接池
-
-连接池默认最大空闲连接5，空闲存活时间5分钟。
 
 okhttp使用了jdk原生的socket，而jdk9以上版本才支持http2，jdk8不支持。
 
@@ -1222,33 +1268,129 @@ http1.1每个连接同时只能有一个流，http2每个连接可以并发多�
 连接是否空闲是通过引用计数判断，使用了弱引用，如果引用计数为0，代表连接空闲。
 
 ```java
+public final class ConnectionPool {
+  //连接池清理线程，最多只有一个线程
   private static final Executor executor = new ThreadPoolExecutor(0 /* corePoolSize */,
       Integer.MAX_VALUE /* maximumPoolSize */, 60L /* keepAliveTime */, TimeUnit.SECONDS,
       new SynchronousQueue<Runnable>(), Util.threadFactory("OkHttp ConnectionPool", true));
 
+  //默认最大空闲连接5
   private final int maxIdleConnections;
+  //默认空闲连接存活时间5分钟
   private final long keepAliveDurationNs;
+  //空闲连接清理线程
+  private final Runnable cleanupRunnable = new Runnable() {
+    @Override public void run() {
+      while (true) {
+        //执行空闲连接清理，并返回下次清理等待时间
+        long waitNanos = cleanup(System.nanoTime());
+        if (waitNanos == -1) return;
+        if (waitNanos > 0) {
+          long waitMillis = waitNanos / 1000000L;
+          waitNanos -= (waitMillis * 1000000L);
+          synchronized (ConnectionPool.this) {
+            try {
+              //阻塞等待下次清理时间
+              ConnectionPool.this.wait(waitMillis, (int) waitNanos);
+            } catch (InterruptedException ignored) {
+            }
+          }
+        }
+      }
+    }
+  };
 
-//默认构造函数
-public ConnectionPool() {
-  this(5, 5, TimeUnit.MINUTES);
-}
+  private final Deque<RealConnection> connections = new ArrayDeque<>();
+  final RouteDatabase routeDatabase = new RouteDatabase();
+  boolean cleanupRunning;
 
-//可以自定义最大连接空闲数量和连接空闲时间
-public ConnectionPool(int maxIdleConnections, long keepAliveDuration, TimeUnit timeUnit) {
-  this.maxIdleConnections = maxIdleConnections;
-  this.keepAliveDurationNs = timeUnit.toNanos(keepAliveDuration);
-
-  // Put a floor on the keep alive duration, otherwise cleanup will spin loop.
-  if (keepAliveDuration <= 0) {
-    throw new IllegalArgumentException("keepAliveDuration <= 0: " + keepAliveDuration);
+  //默认构造函数：最大空闲连接5，空闲连接存活时间5分钟
+  public ConnectionPool() {
+    this(5, 5, TimeUnit.MINUTES);
   }
+  //可以自定义最大连接空闲数量和连接空闲时间
+  public ConnectionPool(int maxIdleConnections, long keepAliveDuration, TimeUnit timeUnit) {
+    this.maxIdleConnections = maxIdleConnections;
+    this.keepAliveDurationNs = timeUnit.toNanos(keepAliveDuration);
+
+    // Put a floor on the keep alive duration, otherwise cleanup will spin loop.
+    if (keepAliveDuration <= 0) {
+      throw new IllegalArgumentException("keepAliveDuration <= 0: " + keepAliveDuration);
+    }
+  }  
 }
 ```
 
 
 
-# 6.监听器使用
+## 清理空闲连接
+
+```java
+void put(RealConnection connection) {
+    assert (Thread.holdsLock(this));
+    //如果空闲连接清理线程未开启，则开启空闲连接清理线程
+    if (!cleanupRunning) {
+        cleanupRunning = true;
+        executor.execute(cleanupRunnable);
+    }
+    connections.add(connection);
+}
+
+long cleanup(long now) {
+  int inUseConnectionCount = 0;
+  int idleConnectionCount = 0;
+  RealConnection longestIdleConnection = null;
+  long longestIdleDurationNs = Long.MIN_VALUE;
+
+  synchronized (this) {
+    //遍历连接池，找到空闲时间最长的连接
+    for (Iterator<RealConnection> i = connections.iterator(); i.hasNext(); ) {
+      RealConnection connection = i.next();
+
+      // 如果连接正在使用，检查下个连接
+      if (pruneAndGetAllocationCount(connection, now) > 0) {
+        inUseConnectionCount++;
+        continue;
+      }
+
+      idleConnectionCount++;
+
+      // 计算当前空闲连接空闲持续时间
+      long idleDurationNs = now - connection.idleAtNanos;
+      // 如果空闲持续时间大于最大空闲时间，则将改连接设置为空闲时间最长连接
+      if (idleDurationNs > longestIdleDurationNs) {
+        longestIdleDurationNs = idleDurationNs;
+        longestIdleConnection = connection;
+      }
+    }
+
+    //如果空闲时间最长连接大于最大空闲时间或者空闲连接数大于最大空闲连接数，清除该空闲连接
+    if (longestIdleDurationNs >= this.keepAliveDurationNs
+        || idleConnectionCount > this.maxIdleConnections) {
+      connections.remove(longestIdleConnection);
+    } else if (idleConnectionCount > 0) {
+      // 如果有空闲连接，则设置下次清理时间为 最大空闲时间-该连接空闲持续时间
+      return keepAliveDurationNs - longestIdleDurationNs;
+    } else if (inUseConnectionCount > 0) {
+      // 如果没有空闲连接，则设置下次清理时间为 最大空闲时间
+      return keepAliveDurationNs;
+    } else {
+      // 没有连接在使用，关闭空闲连接清理线程
+      cleanupRunning = false;
+      return -1;
+    }
+  }
+  //关闭该空闲连接
+  closeQuietly(longestIdleConnection.socket());
+
+  // 立刻再次清理
+  return 0;
+}
+```
+
+
+
+# 5.监听器使用
 
 监听器使用案列：[OkHttp 之 网络请求耗时统计](https://blog.csdn.net/joye123/article/details/82115562)
 
@@ -1718,7 +1860,7 @@ OkHttp具有快速恢复性，可以从一些连接失败中自动恢复。在�
 
 
 
-# 7.注意点
+# 6.注意点
 
 
 
@@ -1823,12 +1965,6 @@ okhttp的重试其实是不同route的重试，如果一个host只有一个ip，
 目的应该为了防止oom，因为这样一个请求执行完毕，但是没有关闭response body，导致连接无法释放，但是使用弱引用，这些未关闭的流StreamAllocation就可以被垃圾回收，防止了oom的出现，只是会有一个弱引用仍然存在于RealConnection，当连接池清理空闲连接时，会发现这些泄漏的连接。
 
 ```java
-/**
-   * Prunes any leaked allocations and then returns the number of remaining live allocations on
-   * {@code connection}. Allocations are leaked if the connection is tracking them but the
-   * application code has abandoned them. Leak detection is imprecise and relies on garbage
-   * collection.
-   */
   private int pruneAndGetAllocationCount(RealConnection connection, long now) {
     List<Reference<StreamAllocation>> references = connection.allocations;
      //遍历弱引用列表
@@ -1850,7 +1986,6 @@ okhttp的重试其实是不同route的重试，如果一个host只有一个ip，
       references.remove(i);
       connection.noNewStreams = true;
 
-      // If this was the last allocation, the connection is eligible for immediate eviction.
       //如果列表为空则说明此连接没有被引用了，则返回0，表示此连接是空闲连接
       if (references.isEmpty()) {
         connection.idleAtNanos = now - keepAliveDurationNs;

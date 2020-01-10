@@ -1,8 +1,8 @@
 # HTTPS
 
-https://zhuanlan.zhihu.com/p/75461564
+[再谈HTTPS](https://zhuanlan.zhihu.com/p/75461564)
 
-https://www.jianshu.com/p/6bf2f9a37feb
+[证书、CA、证书信任链](https://www.jianshu.com/p/6bf2f9a37feb)
 
 ## SSL建立过程
 
