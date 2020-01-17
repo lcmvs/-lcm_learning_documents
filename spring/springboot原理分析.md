@@ -252,6 +252,7 @@ static WebApplicationType deduceFromClasspath() {
 ### 2) 加载spring.factories
 
 ```java
+//SpringFactoriesLoader.java
 private static Map<String, List<String>> loadSpringFactories(@Nullable ClassLoader classLoader) {
     MultiValueMap<String, String> result = (MultiValueMap)cache.get(classLoader);
     if (result != null) {
@@ -320,7 +321,7 @@ public ConfigurableApplicationContext run(String... args) {
         exceptionReporters = this.getSpringFactoriesInstances(SpringBootExceptionReporter.class, new Class[]{ConfigurableApplicationContext.class}, context);
         //
         this.prepareContext(context, environment, listeners, applicationArguments, printedBanner);
-        //todo 核心
+        //todo 核心，初始化
         this.refreshContext(context);
         //空实现
         this.afterRefresh(context, applicationArguments);
@@ -476,7 +477,7 @@ public void refresh() throws BeansException, IllegalStateException {
          //BeanFactory设置之后再进行后续的一些BeanFactory操作，不同的Spring容器做不同的操作
          postProcessBeanFactory(beanFactory);
 
-         // Invoke factory processors registered as beans in the context.
+         // springboot的核心，解析所有@Configuration，将bean注册到beanFactory
          invokeBeanFactoryPostProcessors(beanFactory);
 
          // Register bean processors that intercept bean creation.
@@ -494,7 +495,7 @@ public void refresh() throws BeansException, IllegalStateException {
          // Check for listener beans and register them.
          registerListeners();
 
-         // Instantiate all remaining (non-lazy-init) singletons.
+         // 实例化所有bean
          finishBeanFactoryInitialization(beanFactory);
 
          // Last step: publish corresponding event.

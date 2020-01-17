@@ -438,7 +438,7 @@ SqlSessionFactory sqlSessionFactory = new SqlSessionFactoryBuilder().build(input
 首先，我们使用 MyBatis 提供的工具类 Resources 加载配置文件，得到一个输入流。然后再通过 SqlSessionFactoryBuilder 对象的`build`方法构建 SqlSessionFactory 对象。所以这里的 build 方法是我们分析配置文件解析过程的入口方法。那下面我们来看一下这个方法的代码：
 
 ```java
-// -☆- SqlSessionFactoryBuilder
+// SqlSessionFactoryBuilder
 public SqlSessionFactory build(InputStream inputStream) {
     // 调用重载方法
     return build(inputStream, null, null);
@@ -1991,7 +1991,7 @@ MyBatis 提供了一、二级缓存，其中一级缓存是 SqlSession 级别的
 
 如果我们想修改缓存的一些属性，可以像下面这样配置。
 
-```
+```xml
 <cache
   eviction="FIFO"
   flushInterval="60000"
@@ -3731,7 +3731,7 @@ private void parsePendingCacheRefs() {
 
 在单独使用 MyBatis 进行数据库操作时，我们通常都会先调用 SqlSession 接口的 getMapper 方法为我们的 Mapper 接口生成实现类。然后就可以通过 Mapper 进行数据库操作。比如像下面这样：
 
-```
+```java
 ArticleMapper articleMapper = session.getMapper(ArticleMapper.class);
 Article article = articleMapper.findOne(1);
 ```
@@ -3744,7 +3744,7 @@ Article article = articleMapper.findOne(1);
 
 本节，我们从 DefaultSqlSession 的 getMapper 方法开始看起，如下：
 
-```
+```java
 // -☆- DefaultSqlSession
 public <T> T getMapper(Class<T> type) {
     return configuration.<T>getMapper(type, this);
@@ -3775,7 +3775,7 @@ public <T> T getMapper(Class<T> type, SqlSession sqlSession) {
 
 在获取到 MapperProxyFactory 对象后，即可调用工厂方法为 Mapper 接口生成代理对象了。相关逻辑如下：
 
-```
+```java
 // -☆- MapperProxyFactory
 public T newInstance(SqlSession sqlSession) {
     /*
@@ -3800,7 +3800,7 @@ protected T newInstance(MapperProxy<T> mapperProxy) {
 
 在 MyBatis 中，Mapper 接口方法的代理逻辑实现的比较简单。该逻辑首先会对拦截的方法进行一些检测，以决定是否执行后续的数据库操作。对应的代码如下：
 
-```
+```java
 public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
     try {
         // 如果方法是定义在 Object 类中的，则直接调用
@@ -3835,7 +3835,7 @@ public Object invoke(Object proxy, Method method, Object[] args) throws Throwabl
 
 本节来分析一下 MapperMethod 的构造方法，看看它的构造方法中都包含了哪些逻辑。如下：
 
-```
+```java
 public class MapperMethod {
 
     private final SqlCommand command;
@@ -4296,3 +4296,253 @@ public class PooledDataSourceFactory extends UnpooledDataSourceFactory {
 | 特点            | 依赖于common-pool   | 阿里开源，功能全面 | 历史久远，代码逻辑复杂，且不易维护 |                   | 优化力度大，功能简单，起源于boneCP |
 | 连接池管理      | LinkedBlockingDeque | 数组               |                                    | FairBlockingQueue | threadlocal+CopyOnWriteArrayList   |
 
+
+
+## 6.springboot中源码分析
+
+### 属性文件
+
+springboot摒弃了xml的配置文件，使用属性文件替代了xml配置文件，不再需要mybatis-config.xml这种配置文件了，非常优雅。
+
+```yaml
+# mybatis配置
+mybatis:
+  # 给实体类配置别名
+  type-aliases-package: cn.gdmcmc.iovs.*.pojo
+  # 加载mybatis核心配置文件
+  # configuration 和 configLocation 不能同时存在,这里使用configuration
+  #  config-location: classpath:mybatis/mybatis-config.xml
+  mapper-locations: classpath:mybatis/mapper/**/*.xml
+  configuration:
+    # 开发环境控制台打印sql语句
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 开启驼峰规则自动映射字段属性值；如字段为user_name的可以映射到userName属性中
+    map-underscore-to-camel-case: true
+    # 设置sql执行超时时间,以秒为单位的全局sql超时时间设置,当超出了设置的超时时间时,会抛出SQLTimeoutException
+    default-statement-timeout: 30
+    # 解决查询返回结果含null没有对应字段值问题
+    call-setters-on-nulls: true
+    local-cache-scope: statement
+    cache-enabled: false
+```
+
+```java
+@ConfigurationProperties(prefix = MybatisProperties.MYBATIS_PREFIX)
+public class MybatisProperties {
+
+  public static final String MYBATIS_PREFIX = "mybatis";
+
+  private static final ResourcePatternResolver resourceResolver = new PathMatchingResourcePatternResolver();
+
+  /**
+   * Location of MyBatis xml config file.
+   */
+  private String configLocation;
+
+  /**
+   * Locations of MyBatis mapper files.
+   */
+  private String[] mapperLocations;
+
+  /**
+   * Packages to search type aliases. (Package delimiters are ",; \t\n")
+   */
+  private String typeAliasesPackage;
+
+  /**
+   * The super class for filtering type alias.
+   * If this not specifies, the MyBatis deal as type alias all classes that searched from typeAliasesPackage.
+   */
+  private Class<?> typeAliasesSuperType;
+
+  /**
+   * Packages to search for type handlers. (Package delimiters are ",; \t\n")
+   */
+  private String typeHandlersPackage;
+
+  /**
+   * Indicates whether perform presence check of the MyBatis xml config file.
+   */
+  private boolean checkConfigLocation = false;
+
+  /**
+   * Execution mode for {@link org.mybatis.spring.SqlSessionTemplate}.
+   */
+  private ExecutorType executorType;
+
+  /**
+   * Externalized properties for MyBatis configuration.
+   */
+  private Properties configurationProperties;
+
+  /**
+   * A Configuration object for customize default settings. If {@link #configLocation}
+   * is specified, this property is not used.
+   */
+  @NestedConfigurationProperty
+  private Configuration configuration;
+}
+```
+
+
+
+### SqlSessionFactoryBean
+
+使用SqlSessionFactoryBean代替了SqlSessionFactoryBuilder解析xml配置文件的功能
+
+```java
+//MybatisAutoConfiguration
+@Bean
+@ConditionalOnMissingBean
+public SqlSessionFactory sqlSessionFactory(DataSource dataSource) throws Exception {
+  SqlSessionFactoryBean factory = new SqlSessionFactoryBean();
+  factory.setDataSource(dataSource);
+  factory.setVfs(SpringBootVFS.class);
+  if (StringUtils.hasText(this.properties.getConfigLocation())) {
+    factory.setConfigLocation(this.resourceLoader.getResource(this.properties.getConfigLocation()));
+  }
+  applyConfiguration(factory);
+  if (this.properties.getConfigurationProperties() != null) {
+    factory.setConfigurationProperties(this.properties.getConfigurationProperties());
+  }
+  if (!ObjectUtils.isEmpty(this.interceptors)) {
+    factory.setPlugins(this.interceptors);
+  }
+  if (this.databaseIdProvider != null) {
+    factory.setDatabaseIdProvider(this.databaseIdProvider);
+  }
+  if (StringUtils.hasLength(this.properties.getTypeAliasesPackage())) {
+    factory.setTypeAliasesPackage(this.properties.getTypeAliasesPackage());
+  }
+  if (this.properties.getTypeAliasesSuperType() != null) {
+    factory.setTypeAliasesSuperType(this.properties.getTypeAliasesSuperType());
+  }
+  if (StringUtils.hasLength(this.properties.getTypeHandlersPackage())) {
+    factory.setTypeHandlersPackage(this.properties.getTypeHandlersPackage());
+  }
+  if (!ObjectUtils.isEmpty(this.properties.resolveMapperLocations())) {
+    factory.setMapperLocations(this.properties.resolveMapperLocations());
+  }
+
+  return factory.getObject();
+}
+```
+
+使用SqlSessionFactoryBean构造SqlSessionFactory
+
+```java
+//SqlSessionFactoryBean
+protected SqlSessionFactory buildSqlSessionFactory() throws IOException {
+
+  final Configuration targetConfiguration;
+
+  XMLConfigBuilder xmlConfigBuilder = null;
+  if (this.configuration != null) {
+    targetConfiguration = this.configuration;
+    if (targetConfiguration.getVariables() == null) {
+      targetConfiguration.setVariables(this.configurationProperties);
+    } else if (this.configurationProperties != null) {
+      targetConfiguration.getVariables().putAll(this.configurationProperties);
+    }
+  } else if (this.configLocation != null) {
+    xmlConfigBuilder = new XMLConfigBuilder(this.configLocation.getInputStream(), null, this.configurationProperties);
+    targetConfiguration = xmlConfigBuilder.getConfiguration();
+  } else {
+    LOGGER.debug(() -> "Property 'configuration' or 'configLocation' not specified, using default MyBatis Configuration");
+    targetConfiguration = new Configuration();
+    Optional.ofNullable(this.configurationProperties).ifPresent(targetConfiguration::setVariables);
+  }
+
+  Optional.ofNullable(this.objectFactory).ifPresent(targetConfiguration::setObjectFactory);
+  Optional.ofNullable(this.objectWrapperFactory).ifPresent(targetConfiguration::setObjectWrapperFactory);
+  Optional.ofNullable(this.vfs).ifPresent(targetConfiguration::setVfsImpl);
+
+  if (hasLength(this.typeAliasesPackage)) {
+    String[] typeAliasPackageArray = tokenizeToStringArray(this.typeAliasesPackage,
+        ConfigurableApplicationContext.CONFIG_LOCATION_DELIMITERS);
+    Stream.of(typeAliasPackageArray).forEach(packageToScan -> {
+      targetConfiguration.getTypeAliasRegistry().registerAliases(packageToScan,
+          typeAliasesSuperType == null ? Object.class : typeAliasesSuperType);
+      LOGGER.debug(() -> "Scanned package: '" + packageToScan + "' for aliases");
+    });
+  }
+
+  if (!isEmpty(this.typeAliases)) {
+    Stream.of(this.typeAliases).forEach(typeAlias -> {
+      targetConfiguration.getTypeAliasRegistry().registerAlias(typeAlias);
+      LOGGER.debug(() -> "Registered type alias: '" + typeAlias + "'");
+    });
+  }
+
+  if (!isEmpty(this.plugins)) {
+    Stream.of(this.plugins).forEach(plugin -> {
+      targetConfiguration.addInterceptor(plugin);
+      LOGGER.debug(() -> "Registered plugin: '" + plugin + "'");
+    });
+  }
+
+  if (hasLength(this.typeHandlersPackage)) {
+    String[] typeHandlersPackageArray = tokenizeToStringArray(this.typeHandlersPackage,
+        ConfigurableApplicationContext.CONFIG_LOCATION_DELIMITERS);
+    Stream.of(typeHandlersPackageArray).forEach(packageToScan -> {
+      targetConfiguration.getTypeHandlerRegistry().register(packageToScan);
+      LOGGER.debug(() -> "Scanned package: '" + packageToScan + "' for type handlers");
+    });
+  }
+
+  if (!isEmpty(this.typeHandlers)) {
+    Stream.of(this.typeHandlers).forEach(typeHandler -> {
+      targetConfiguration.getTypeHandlerRegistry().register(typeHandler);
+      LOGGER.debug(() -> "Registered type handler: '" + typeHandler + "'");
+    });
+  }
+
+  if (this.databaseIdProvider != null) {//fix #64 set databaseId before parse mapper xmls
+    try {
+      targetConfiguration.setDatabaseId(this.databaseIdProvider.getDatabaseId(this.dataSource));
+    } catch (SQLException e) {
+      throw new NestedIOException("Failed getting a databaseId", e);
+    }
+  }
+
+  Optional.ofNullable(this.cache).ifPresent(targetConfiguration::addCache);
+
+  if (xmlConfigBuilder != null) {
+    try {
+      xmlConfigBuilder.parse();
+      LOGGER.debug(() -> "Parsed configuration file: '" + this.configLocation + "'");
+    } catch (Exception ex) {
+      throw new NestedIOException("Failed to parse config resource: " + this.configLocation, ex);
+    } finally {
+      ErrorContext.instance().reset();
+    }
+  }
+
+  targetConfiguration.setEnvironment(new Environment(this.environment,
+      this.transactionFactory == null ? new SpringManagedTransactionFactory() : this.transactionFactory,
+      this.dataSource));
+
+  if (!isEmpty(this.mapperLocations)) {
+    for (Resource mapperLocation : this.mapperLocations) {
+      if (mapperLocation == null) {
+        continue;
+      }
+
+      try {
+        XMLMapperBuilder xmlMapperBuilder = new XMLMapperBuilder(mapperLocation.getInputStream(),
+            targetConfiguration, mapperLocation.toString(), targetConfiguration.getSqlFragments());
+        xmlMapperBuilder.parse();
+      } catch (Exception e) {
+        throw new NestedIOException("Failed to parse mapping resource: '" + mapperLocation + "'", e);
+      } finally {
+        ErrorContext.instance().reset();
+      }
+      LOGGER.debug(() -> "Parsed mapper file: '" + mapperLocation + "'");
+    }
+  } else {
+    LOGGER.debug(() -> "Property 'mapperLocations' was not specified or no matching resources found");
+  }
+
+  return this.sqlSessionFactoryBuilder.build(targetConfiguration);
+}
+```
