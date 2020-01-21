@@ -4546,3 +4546,38 @@ protected SqlSessionFactory buildSqlSessionFactory() throws IOException {
   return this.sqlSessionFactoryBuilder.build(targetConfiguration);
 }
 ```
+
+
+
+### SqlSessionTemplate
+
+扫描mapper接口的时候就会把MapperFactoryBean放到BeanDefinition中，最后生成bean。
+
+```java
+public class MapperFactoryBean<T> extends SqlSessionDaoSupport implements FactoryBean<T> {
+
+  private Class<T> mapperInterface;
+
+  private boolean addToConfig = true;
+
+  @Override
+  public T getObject() throws Exception {
+    return getSqlSession().getMapper(this.mapperInterface);
+  }
+  
+  public SqlSession getSqlSession() {
+    return this.sqlSessionTemplate;
+  }
+}
+```
+
+springboot使用SqlSessionTemplate作为一个bean代替了SqlSession
+
+```java
+public class SqlSessionTemplate implements SqlSession, DisposableBean {
+      @Override
+  public <T> T getMapper(Class<T> type) {
+    return getConfiguration().getMapper(type, this);
+  }
+}
+```
