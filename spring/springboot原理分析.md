@@ -636,7 +636,26 @@ invokeBeanFactoryPostProcessors方法总结来说就是从Spring容器中找出B
 
 
 
+# 个人分析
 
+//spring初始化过程
+AbstractApplicationContext.refresh()
+
+//调用bena工厂处理器
+AbstractApplicationContext.invokeBeanFactoryPostProcessors(beanFactory);
+
+PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors
+
+PostProcessorRegistrationDelegate.invokeBeanDefinitionRegistryPostProcessors
+
+BeanDefinitionRegistryPostProcessor.postProcessBeanDefinitionRegistry
+ConfigurationClassPostProcessor
+
+//解析 @Configuration
+ConfigurationClassParser.parse
+
+//加载bean 包含spring.factories中的自动配置类
+ConfigurationClassBeanDefinitionReader.loadBeanDefinitions
 
 
 

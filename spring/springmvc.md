@@ -1,6 +1,6 @@
 
 
-
+# 执行流程
 
 ![1577349514287](assets/1577349514287.png)
 
@@ -18,7 +18,7 @@
 
 
 
-# 核心流程doDispatch
+## 核心流程doDispatch
 
 代码基于springmvc 5.1.5
 
@@ -64,6 +64,7 @@ protected void doDispatch(HttpServletRequest request, HttpServletResponse respon
          }
 
          //执行拦截器的preHandle方法
+         //比如用来处理权限判定
          if (!mappedHandler.applyPreHandle(processedRequest, response)) {
             return;
          }
@@ -77,8 +78,7 @@ protected void doDispatch(HttpServletRequest request, HttpServletResponse respon
          }
 
          applyDefaultViewName(processedRequest, mv);
-          //执行拦截器的postHandle方法
-          //比如用来处理权限判定
+          //执行拦截器的postHandle方法        
          mappedHandler.applyPostHandle(processedRequest, response, mv);
       }
       catch (Exception ex) {
@@ -306,3 +306,8 @@ public void handleReturnValue(@Nullable Object returnValue, MethodParameter retu
 
 
 
+# 过滤器
+
+
+
+# 监听器

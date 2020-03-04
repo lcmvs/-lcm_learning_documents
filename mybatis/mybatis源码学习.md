@@ -423,9 +423,9 @@ public class MyBatisTest {
 
 
 
-## 2.配置文件解析
+# 2.配置文件解析
 
-### 2.1 简介
+## 2.1 简介
 
 在单独使用 MyBatis 时，第一步要做的事情就是根据配置文件构建`SqlSessionFactory`对象。相关代码如下：
 
@@ -534,7 +534,7 @@ private void parseConfiguration(XNode root) {
 
 到此，一个 MyBatis 的解析过程就出来了，每个配置的解析逻辑都封装在了相应的方法中。
 
-### 2.2 解析 properties 配置
+## 2.2 解析 properties 配置
 
 解析`properties`节点是由`propertiesElement`这个方法完成的，该方法的逻辑比较简单。在分析方法源码前，先来看一下 properties 节点的配置内容。如下：
 
@@ -628,9 +628,9 @@ jdbc.password=1234
 
 如上，原`jdbc.username`值为`coolblog`，现在被覆盖为了`root`。同名属性覆盖的问题需要大家注意一下，其他的就没什么了，继续往下分析。
 
-###  2.3 解析 settings 配置
+##  2.3 解析 settings 配置
 
-####  2.3.1 settings 节点的解析过程
+###  2.3.1 settings 节点的解析过程
 
 settings 相关配置是 MyBatis 中非常重要的配置，这些配置用于调整 MyBatis 运行时的行为。settings 配置繁多，在对这些配置不熟悉的情况下，保持默认配置即可。关于 settings 相关配置，MyBatis 官网上进行了比较详细的描述，大家可以去了解一下。在本节中，暂时还用不到这些配置，所以即使不了解这些配置也没什么关系。下面先来看一个比较简单的配置，如下：
 
@@ -674,7 +674,7 @@ private Properties settingsAsProperties(XNode context) {
 
 下面，我们来重点关注一下第2步和第3步的流程。这两步流程对应的代码较为复杂，需要一点耐心阅读。好了，下面开始分析。
 
-####  2.3.2 元信息对象创建过程
+###  2.3.2 元信息对象创建过程
 
 元信息类`MetaClass`的构造方法为私有类型，所以不能直接创建，必须使用其提供的`forClass`方法进行创建。它的创建逻辑如下：
 
@@ -1227,7 +1227,7 @@ public class PropertyTokenizer implements Iterator<PropertyTokenizer> {
 
 好了，关于 setting 节点的解析过程就先分析到这里，我们继续往下分析。
 
-###  2.4 设置 settings 配置到 Configuration 中
+##  2.4 设置 settings 配置到 Configuration 中
 
 上一节讲了 settings 配置的解析过程，这些配置解析出来要有一个存放的地方，以使其他代码可以找到这些配置。这个存放地方就是 Configuration 对象，本节就来看一下这将 settings 配置设置到 Configuration 对象中的过程。如下：
 
@@ -1278,7 +1278,7 @@ protected Class<?> resolveAlias(String alias) {
 
 这里出现了一个新的类`TypeAliasRegistry`，大家对于它可能会觉得陌生，但是对于`typeAlias`应该不会陌生。TypeAliasRegistry 的用途就是将别名和类型进行映射，这样就可以用别名表示某个类了，方便使用。既然聊到了别名，那下面我们不妨看看别名的配置的解析过程。
 
-###  2.5 解析 typeAliases 配置
+##  2.5 解析 typeAliases 配置
 
 在 MyBatis 中，可以为我们自己写的有些类定义一个别名。这样在使用的时候，我们只需要输入别名即可，无需再把全限定的类名写出来。在 MyBatis 中，我们有两种方式进行别名配置。第一种是仅配置包名，让 MyBatis 去扫描包中的类型，并根据类型得到相应的别名。这种方式可配合 Alias 注解使用，即通过注解为某个类配置别名，而不是让 MyBatis 按照默认规则生成别名。这种方式的配置如下：
 
@@ -1498,7 +1498,7 @@ public TypeAliasRegistry() {
 
 好了，以上就是别名解析的全部流程，大家看懂了吗？如果觉得没啥障碍的话，那继续往下看呗。
 
-###  2.6 解析 plugins 配置
+##  2.6 解析 plugins 配置
 
 插件是 MyBatis 提供的一个拓展机制，通过插件机制我们可在 SQL 执行过程中的某些点上做一些自定义操作。实现一个插件需要比简单，首先需要让插件类实现`Interceptor`接口。然后在插件类上添加`@Intercepts`和`@Signature`注解，用于指定想要拦截的目标方法。MyBatis 允许拦截下面接口中的一些方法：
 
@@ -1539,7 +1539,7 @@ private void pluginElement(XNode parent) throws Exception {
 
 如上，插件解析的过程还是比较简单的。首先是获取配置，然后再解析拦截器类型，并实例化拦截器。最后向拦截器中设置属性，并将拦截器添加到 Configuration 中。好了，关于插件配置的分析就先到这，继续往下分析。
 
-###  2.7 解析 environments 配置
+##  2.7 解析 environments 配置
 
 在 MyBatis 中，事务管理器和数据源是配置在 environments 中的。它们的配置大致如下：
 
@@ -1595,7 +1595,7 @@ private void environmentsElement(XNode context) throws Exception {
 
 environments 配置的解析过程没什么特别之处，按部就班解析就行了，不多说了。
 
-###  2.8 解析 typeHandlers 配置
+##  2.8 解析 typeHandlers 配置
 
 在向数据库存储或读取数据时，我们需要将数据库字段类型和 Java 类型进行一个转换。比如数据库中有`CHAR`和`VARCHAR`等类型，但 Java 中没有这些类型，不过 Java 有`String`类型。所以我们在从数据库中读取 CHAR 和 VARCHAR 类型的数据时，就可以把它们转成 String 。在 MyBatis 中，数据库类型和 Java 类型之间的转换任务是委托给类型处理器`TypeHandler`去处理的。MyBatis 提供了一些常见类型的类型处理器，除此之外，我们还可以自定义类型处理器以非常见类型转换的需求。这里我就不演示自定义类型处理器的编写方法了，没用过或者不熟悉的同学可以 [MyBatis 官方文档](http://www.mybatis.org/mybatis-3/zh/configuration.html#typeHandlers)，或者我在上一篇[文章](http://www.coolblog.xyz/2018/07/16/MyBatis-%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0%E5%AF%BC%E8%AF%BB/)中写的示例。
 
@@ -1811,7 +1811,7 @@ public void register(String packageName) {
 
 
 
-## 3.映射文件解析
+# 3.映射文件解析
 
 ### 3.1 简介
 
@@ -3710,9 +3710,9 @@ private void parsePendingCacheRefs() {
 
 
 
-## 4.sql执行过程分析
+# 4.sql执行过程分析
 
-### 1.简介
+## 1.简介
 
 在前面的文章中，我分析了配置文件和映射文件的解析过程。经过前面复杂的解析过程后，现在，MyBatis 已经进入了就绪状态，等待使用者发号施令。本篇文章我将分析MyBatis 执行 SQL 的过程，该过程比较复杂，涉及的技术点很多。包括但不限于以下技术点：
 
@@ -3725,9 +3725,7 @@ private void parsePendingCacheRefs() {
 
 如果大家能掌握上面的技术点，那么对 MyBatis 的原理将会有很深入的理解。若将以上技术点一一展开分析，会导致文章篇幅很大，因此我打算将以上知识点分成数篇文章进行分析。本篇文章将分析以上列表中的第1个、第2个以及第6个技术点，其他技术点将会在随后的文章中进行分析。好了，其他的就不多说了，下面开始我们的源码分析之旅。
 
-###  2.SQL 执行过程分析
-
-####  2.1 SQL 执行入口分析
+##  2.1 SQL 执行入口分析
 
 在单独使用 MyBatis 进行数据库操作时，我们通常都会先调用 SqlSession 接口的 getMapper 方法为我们的 Mapper 接口生成实现类。然后就可以通过 Mapper 进行数据库操作。比如像下面这样：
 
@@ -3740,7 +3738,7 @@ Article article = articleMapper.findOne(1);
 
 上面是一个简版的 SQL 执行过程，省略了很多细节。下面我们先按照这个简版的流程进行分析，首先我们来看一下 Mapper 接口的代理对象创建过程。
 
-#####  2.1.1 为 Mapper 接口创建代理对象
+###  2.1.1 为 Mapper 接口创建代理对象
 
 本节，我们从 DefaultSqlSession 的 getMapper 方法开始看起，如下：
 
@@ -3796,7 +3794,7 @@ protected T newInstance(MapperProxy<T> mapperProxy) {
 
 到此，关于 Mapper 接口代理对象的创建过程就分析完了。现在我们的 ArticleMapper 接口指向的代理对象已经创建完毕，下面就可以调用接口方法进行数据库操作了。由于接口方法会被代理逻辑拦截，所以下面我们把目光聚焦在代理逻辑上面，看看代理逻辑会做哪些事情。
 
-#####  2.1.2 执行代理逻辑
+###  2.1.2 执行代理逻辑
 
 在 MyBatis 中，Mapper 接口方法的代理逻辑实现的比较简单。该逻辑首先会对拦截的方法进行一些检测，以决定是否执行后续的数据库操作。对应的代码如下：
 
@@ -3811,7 +3809,6 @@ public Object invoke(Object proxy, Method method, Object[] args) throws Throwabl
          * 下面的代码最早出现在 mybatis-3.4.2 版本中，用于支持 JDK 1.8 中的
          * 新特性 - 默认方法。这段代码的逻辑就不分析了，有兴趣的同学可以
          * 去 Github 上看一下相关的相关的讨论（issue #709），链接如下：
-         * 
          *   https://github.com/mybatis/mybatis-3/issues/709
          */  
         } else if (isDefaultMethod(method)) {
@@ -3831,7 +3828,7 @@ public Object invoke(Object proxy, Method method, Object[] args) throws Throwabl
 
 如上，代理逻辑会首先检测被拦截的方法是不是定义在 Object 中的，比如 equals、hashCode 方法等。对于这类方法，直接执行即可。除此之外，MyBatis 从 3.4.2 版本开始，对 JDK 1.8 接口的默认方法提供了支持，具体就不分析了。完成相关检测后，紧接着从缓存中获取或者创建 MapperMethod 对象，然后通过该对象中的 execute 方法执行 SQL。在分析 execute 方法之前，我们先来看一下 MapperMethod 对象的创建过程。MapperMethod 的创建过程看似普通，但却包含了一些重要的逻辑，所以不能忽视。
 
- 2.1.2.1 创建 MapperMethod 对象
+####  2.1.2.1 创建 MapperMethod 对象
 
 本节来分析一下 MapperMethod 的构造方法，看看它的构造方法中都包含了哪些逻辑。如下：
 
@@ -3852,11 +3849,11 @@ public class MapperMethod {
 
 如上，MapperMethod 构造方法的逻辑很简单，主要是创建 SqlCommand 和 MethodSignature 对象。这两个对象分别记录了不同的信息，这些信息在后续的方法调用中都会被用到。下面我们深入到这两个类的构造方法中，探索它们的初始化逻辑。
 
- ① 创建 SqlCommand 对象
+#####  ① 创建 SqlCommand 对象
 
 前面说了 SqlCommand 中保存了一些和 SQL 相关的信息，那具体有哪些信息呢？答案在下面的代码中。
 
-```
+```java
 public static class SqlCommand {
 
     private final String name;
@@ -3897,11 +3894,11 @@ public static class SqlCommand {
 
 如上，SqlCommand 的构造方法主要用于初始化它的两个成员变量。代码不是很长，逻辑也不难理解，就不多说了。继续往下看。
 
- ② 创建 MethodSignature 对象
+#####  ② 创建 MethodSignature 对象
 
 MethodSignature 即方法签名，顾名思义，该类保存了一些和目标方法相关的信息。比如目标方法的返回类型，目标方法的参数列表信息等。下面，我们来分析一下 MethodSignature 的构造方法。
 
-```
+```java
 public static class MethodSignature {
 
     private final boolean returnsMany;
@@ -3948,7 +3945,7 @@ public static class MethodSignature {
 
 上面的代码用于检测目标方法的返回类型，以及解析目标方法参数列表。其中，检测返回类型的目的是为避免查询方法返回错误的类型。比如我们要求接口方法返回一个对象，结果却返回了对象集合，这会导致类型转换错误。关于返回值类型的解析过程先说到这，下面分析参数列表的解析过程。
 
-```
+```java
 public class ParamNameResolver {
 
     private static final String GENERIC_NAME_PREFIX = "param";
@@ -4013,7 +4010,7 @@ public class ParamNameResolver {
 
 下面写点代码测试一下 ParamNameResolver 的解析逻辑。如下：
 
-```
+```java
 public class ParamNameResolverTest {
 
     @Test
@@ -4047,11 +4044,11 @@ public class ParamNameResolverTest {
 
 到此，关于 MapperMethod 的初始化逻辑就分析完了，继续往下分析。
 
- 2.1.2.2 执行 execute 方法
+####  2.1.2.2 执行 execute 方法
 
 前面已经分析了 MapperMethod 的初始化过程，现在 MapperMethod 创建好了。那么，接下来要做的事情是调用 MapperMethod 的 execute 方法，执行 SQL。代码如下：
 
-```
+```java
 // -☆- MapperMethod
 public Object execute(SqlSession sqlSession, Object[] args) {
     Object result;
@@ -4121,7 +4118,7 @@ public Object execute(SqlSession sqlSession, Object[] args) {
 
 如上，execute 方法主要由一个 switch 语句组成，用于根据 SQL 类型执行相应的数据库操作。该方法的逻辑清晰，不需要太多的分析。不过在上面的方法中 convertArgsToSqlCommandParam 方法出现次数比较频繁，这里分析一下：
 
-```
+```java
 // -☆- MapperMethod
 public Object convertArgsToSqlCommandParam(Object[] args) {
     return paramNameResolver.getNamedParams(args);
@@ -4175,15 +4172,15 @@ public Object getNamedParams(Object[] args) {
 
 
 
-## 5.mybatis数据源
+# 5.mybatis数据源
 
-### 5.1 简介
+## 5.1 简介
 
 本篇文章将向大家介绍 MyBatis 内置数据源的实现逻辑。搞懂这些数据源的实现，可使大家对数据源有更深入的认识。同时在配置这些数据源时，也会更清楚每种属性的意义和用途。因此，如果大家想知其然，也知其所以然。那么接下来就让我们一起去探索 MyBatis 内置数据源的源码吧。
 
 MyBatis 支持三种数据源配置，分别为 UNPOOLED、POOLED 和 JNDI。并提供了两种数据源实现，分别是 UnpooledDataSource 和 PooledDataSource。在三种数据源配置中，UNPOOLED 和 POOLED 是我们最常用的两种配置。至于 JNDI，MyBatis 提供这种数据源的目的是为了让其能够运行在 EJB 或应用服务器等容器中，这一点官方文档中有所说明。由于 JNDI 数据源在日常开发中使用甚少，因此，本篇文章不打算分析 JNDI 数据源相关实现。大家若有兴趣，可自行分析。接下来，本文将重点分析 UNPOOLED 和 POOLED 两种数据源。其他的就不多说了，进入正题吧。
 
-### 5.2 内置数据源初始化过程
+## 5.2 内置数据源初始化过程
 
 在详细分析 UnpooledDataSource 和 PooledDataSource 两种数据源实现之前，我们先来了解一下数据源的配置与初始化过程。现在看数据源是如何配置的，如下：
 
@@ -4278,7 +4275,7 @@ public class PooledDataSourceFactory extends UnpooledDataSourceFactory {
 
 
 
-### 5.3 第三方数据库连接池
+## 5.3 第三方数据库连接池
 
 比如Hikaricp，com.zaxxer.hikari.HikariDataSource，其实第三方数据源和mybatis内置的数据源，都是实现了javax.sql.DataSource这个接口，而mybatis操作的数据源也就是这个接口，这也是接口的力量。
 
@@ -4298,9 +4295,9 @@ public class PooledDataSourceFactory extends UnpooledDataSourceFactory {
 
 
 
-## 6.springboot中源码分析
+# 6.springboot中源码分析
 
-### 属性文件
+## 属性文件
 
 springboot摒弃了xml的配置文件，使用属性文件替代了xml配置文件，不再需要mybatis-config.xml这种配置文件了，非常优雅。
 
@@ -4386,9 +4383,13 @@ public class MybatisProperties {
 
 
 
-### SqlSessionFactoryBean
+## SqlSessionFactory
 
-使用SqlSessionFactoryBean代替了SqlSessionFactoryBuilder解析xml配置文件的功能
+DataSource数据源bean装配完以后，MybatisAutoConfiguration自动装配。
+
+使用SqlSessionFactoryBean代替了SqlSessionFactoryBuilder解析mybatis-config.xml配置文件的功能，直接解析springboot的属性文件，yaml或者properties文件。
+
+解析配置文件中的配置后，生成SqlSessionFactory。
 
 ```java
 //MybatisAutoConfiguration
@@ -4549,9 +4550,9 @@ protected SqlSessionFactory buildSqlSessionFactory() throws IOException {
 
 
 
-### SqlSessionTemplate
+## SqlSessionTemplate
 
-扫描mapper接口的时候就会把MapperFactoryBean放到BeanDefinition中，最后生成bean。
+扫描mapper接口的时候，就会把MapperFactoryBean放到BeanDefinition中，最后生成bean。
 
 ```java
 public class MapperFactoryBean<T> extends SqlSessionDaoSupport implements FactoryBean<T> {

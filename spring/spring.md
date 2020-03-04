@@ -17,3 +17,9 @@ Spring ioc ：控制反转的优势，解耦
  
 
 ![img](./assets/clip_image008.jpg)
+
+
+
+spring中的循环依赖
+
+[Spring 如何解决循环依赖的问题](https://www.jianshu.com/p/8bb67ca11831)

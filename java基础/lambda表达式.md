@@ -2,6 +2,10 @@
 
 Lambda表达式是Java 8新引入的一种语法，是一种紧凑的传递代码的方式，它的名字来源于学术界的λ演算。
 
+[深入探索Java 8 Lambda表达式](<https://droidyue.com/blog/2015/11/28/article-java-8-lambdas-a-peek-under-the-hood/>)
+
+[Java 8里面lambda的最佳实践](<https://my.oschina.net/benhaile/blog/408377>)
+
 ## 通过接口传递代码
 
 面向接口的编程，针对接口而非具体类型进行编程，可以降低程序的耦合性、提高灵活性、提高复用性。
