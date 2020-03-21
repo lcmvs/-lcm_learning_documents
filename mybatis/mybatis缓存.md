@@ -11,7 +11,7 @@ mybatis:
   configuration:
     #一级缓存 默认session，使用事务可能导致脏数据，建议statement
     local-cache-scope: statement
-    #二级缓存 默认true，建议关闭
+    #二级缓存 默认true，建议关闭，范围namespace，也就是一个mapper
     cache-enabled: false
 ```
 

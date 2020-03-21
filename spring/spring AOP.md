@@ -55,6 +55,12 @@ public class DemoAspect {
         System.out.println("后置。。。");
     }
 }
+
+//@Before("") 前置通知
+//@Around("") 环绕通知
+//@AfterReturning("") 正常返回通知
+//@AfterThrowing("") 异常返回通知
+//@After("") finall通知
 ```
 ### 通知类型
 

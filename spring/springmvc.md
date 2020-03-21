@@ -27,6 +27,7 @@
 [SpringMVC源码分析系列](https://www.cnblogs.com/fangjian0423/p/springMVC-directory-summary.html)
 
 ```java
+//DispatcherServlet
 protected void doDispatch(HttpServletRequest request, HttpServletResponse response) throws Exception {
    HttpServletRequest processedRequest = request;
    HandlerExecutionChain mappedHandler = null;
@@ -89,7 +90,7 @@ protected void doDispatch(HttpServletRequest request, HttpServletResponse respon
          // making them available for @ExceptionHandler methods and other scenarios.
          dispatchException = new NestedServletException("Handler dispatch failed", err);
       }
-       //渲染视图
+       //渲染视图，
       processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);
    }
    catch (Exception ex) {
@@ -130,6 +131,7 @@ protected void doDispatch(HttpServletRequest request, HttpServletResponse respon
  * @see #createInvocableHandlerMethod(HandlerMethod)
  */
 @Nullable
+//RequestMappingHandlerAdapter.java
 protected ModelAndView invokeHandlerMethod(HttpServletRequest request,
       HttpServletResponse response, HandlerMethod handlerMethod) throws Exception {
 

@@ -115,8 +115,6 @@ public class AuthorDO implements Serializable {
     private SexEnum sex;
     private String email;
     private List<ArticleDO> articles;
-
-    // 省略 getter/setter 和 toString
 }
 
 public class ArticleDO implements Serializable {
@@ -126,8 +124,6 @@ public class ArticleDO implements Serializable {
     private AuthorDO author;
     private String content;
     private Date createTime;
-
-    // 省略 getter/setter 和 toString
 }
 ```
 
@@ -186,7 +182,7 @@ public interface AuthorDao {
 
 与这两个接口对应的 SQL 被配置在了下面的两个映射文件中。我们先来看一下第一个映射文件 AuthorMapper.xml 的内容。
 
-```java
+```xml
 <!-- AuthorMapper.xml -->
 <mapper namespace="xyz.coolblog.dao.AuthorDao">
 
@@ -221,15 +217,17 @@ public interface AuthorDao {
 
 注意看上面的`<resultMap/>`配置，这个标签中包含了一个一对多的配置`<collection/>`，这个配置引用了一个 id 为`articleResult`的。除了要注意一对多的配置，这里还要下面这行配置：
 
-```java
+```xml
 <result property="sex" column="sex" typeHandler="org.apache.ibatis.type.EnumOrdinalTypeHandler"/>
 ```
 
-前面说过 AuthorDO 的`sex`属性是一个枚举，但这个属性在数据表中是以整型值进行存储的。所以向数据表写入或者查询数据时，要进行类型转换。写入时，需要将`SexEnum`转成`int`。查询时，则需要把`int`转成`SexEnum`。由于这两个是完全不同的类型，不能通过强转进行转换，所以需要使用一个中间类进行转换，这个中间类就是 `EnumOrdinalTypeHandler`。这个类会按照枚举顺序进行转换，比如在`SexEnum`中，`MAN`的顺序是`0`。存储时，EnumOrdinalTypeHandler 会将`MAN`替换为`0`。查询时，又会将`0`转换为`MAN`。除了`EnumOrdinalTypeHandler`，MyBatis 还提供了另一个枚举类型处理器`EnumTypeHandler`。这个则是按照枚举的字面值进行转换，比如该处理器将枚举`MAN`和字符串 “MAN” 进行相互转换。
+前面说过 AuthorDO 的`sex`属性是一个枚举，但这个属性在数据表中是以整型值进行存储的。所以向数据表写
+
+入或者查询数据时，要进行类型转换。写入时，需要将`SexEnum`转成`int`。查询时，则需要把`int`转成`SexEnum`。由于这两个是完全不同的类型，不能通过强转进行转换，所以需要使用一个中间类进行转换，这个中间类就是 `EnumOrdinalTypeHandler`。这个类会按照枚举顺序进行转换，比如在`SexEnum`中，`MAN`的顺序是`0`。存储时，EnumOrdinalTypeHandler 会将`MAN`替换为`0`。查询时，又会将`0`转换为`MAN`。除了`EnumOrdinalTypeHandler`，MyBatis 还提供了另一个枚举类型处理器`EnumTypeHandler`。这个则是按照枚举的字面值进行转换，比如该处理器将枚举`MAN`和字符串 “MAN” 进行相互转换。
 
 上面简单分析了一下枚举类型处理器，接下来，继续往下看。下面是 ArticleMapper.xml 的配置内容：
 
-```java
+```xml
 <!-- ArticleMapper.xml -->
 <mapper namespace="xyz.coolblog.dao.ArticleDao">
 
@@ -300,7 +298,7 @@ public class ArticleTypeHandler extends BaseTypeHandler<ArticleTypeEnum> {
 
 前面贴了实体类，数据访问类，以及 SQL 映射文件。最后还差一个 MyBatis 的配置文件，这里贴出来。如下：
 
-```
+```xml
 <!-- mybatis-congif.xml -->
 <configuration>
     <properties resource="jdbc.properties"/>
@@ -1914,7 +1912,7 @@ public void parse() {
 
 在 MyBatis 映射文件中，可以配置多种节点。比如 <cache>，<resultMap>，<sql> 以及 <select | insert | update | delete> 等。下面我们来看一个映射文件配置示例。
 
-```
+```xml
 <mapper namespace="xyz.coolblog.dao.AuthorDao">
 
     <cache/>
@@ -1944,7 +1942,7 @@ public void parse() {
 
 上面是一个比较简单的映射文件，还有一些的节点没有出现在上面。以上每种配置中的每种节点的解析逻辑都封装在了相应的方法中，这些方法由 XMLMapperBuilder 类的 configurationElement 方法统一调用。该方法的逻辑如下：
 
-```
+```java
 private void configurationElement(XNode context) {
     try {
         // 获取 mapper 命名空间
@@ -3576,7 +3574,7 @@ public MappedStatement addMappedStatement(
 
 映射文件解析完成后，并不意味着整个解析过程就结束了。此时还需要通过命名空间绑定 mapper 接口，这样才能将映射文件中的 SQL 语句和 mapper 接口中的方法绑定在一起，后续即可通过调用 mapper 接口方法执行与之对应的 SQL 语句。下面我们来分析一下 mapper 接口的绑定过程。
 
-```
+```java
 // -☆- XMLMapperBuilder
 private void bindMapperForNamespace() {
     // 获取映射文件的命名空间
@@ -3662,7 +3660,7 @@ public void parse() {
 
 如上，parse 方法是映射文件的解析入口。在本章的开始，我贴过这个源码。从上面的源码中可以知道有三种节点在解析过程中可能会出现不能完成解析的情况。由于上面三个以 parsePending 开头的方法逻辑一致，所以下面我只会分析其中一个方法的源码。简单起见，这里选择分析 parsePendingCacheRefs 的源码。下面看一下如何配置映射文件会导致 <cache-ref> 节点无法完成解析。
 
-```
+```xml
 <!-- 映射文件1 -->
 <mapper namespace="xyz.coolblog.dao.Mapper1">
     <!-- 引用映射文件2中配置的缓存 -->
@@ -3677,7 +3675,7 @@ public void parse() {
 
 如上，假设 MyBatis 先解析映射文件1，然后再解析映射文件2。按照这样的解析顺序，映射文件1中的 <cache-ref> 节点就无法完成解析，因为它所引用的缓存还未被解析。当映射文件2解析完成后，MyBatis 会调用 parsePendingCacheRefs 方法处理在此之前未完成解析的 <cache-ref> 节点。具体的逻辑如下：
 
-```
+```java
 private void parsePendingCacheRefs() {
     // 获取 CacheRefResolver 列表
     Collection<CacheRefResolver> incompleteCacheRefs = configuration.getIncompleteCacheRefs();
@@ -3775,6 +3773,9 @@ public <T> T getMapper(Class<T> type, SqlSession sqlSession) {
 
 ```java
 // -☆- MapperProxyFactory
+private final Class<T> mapperInterface;
+private final Map<Method, MapperMethod> methodCache = new ConcurrentHashMap<>();
+
 public T newInstance(SqlSession sqlSession) {
     /*
      * 创建 MapperProxy 对象，MapperProxy 实现了 
@@ -4279,6 +4280,16 @@ public class PooledDataSourceFactory extends UnpooledDataSourceFactory {
 
 比如Hikaricp，com.zaxxer.hikari.HikariDataSource，其实第三方数据源和mybatis内置的数据源，都是实现了javax.sql.DataSource这个接口，而mybatis操作的数据源也就是这个接口，这也是接口的力量。
 
+```java
+public interface DataSource  extends CommonDataSource, Wrapper {
+    
+  Connection getConnection() throws SQLException;
+
+  Connection getConnection(String username, String password) throws SQLException;
+    
+}
+```
+
 [对比各大数据库连接池技术-Jdbc-Dbcp-C3p0-Druid-Hikaricp](https://cloud.tencent.com/developer/article/1446874)
 
 | 功能            | dbcp                | druid              | c3p0                               | tomcat-jdbc       | HikariCP                           |
@@ -4296,6 +4307,29 @@ public class PooledDataSourceFactory extends UnpooledDataSourceFactory {
 
 
 # 6.springboot中源码分析
+
+1.解析配置文件，构建SqlSessionFactory
+
+2.解析映射文件，解析成MappedStatement，以map形式存入，存入Configuration
+映射关系以type-MapperProxyFactory的形式存入Configuration中的knownMappers，这是个HashMap
+
+3.sql执行，
+DefaultSqlSession.getMapper()
+
+从 knownMappers 中获取与 
+type 对应的 MapperProxyFactory
+final MapperProxyFactory<T> mapperProxyFactory = (MapperProxyFactory<T>) knownMappers.get(type);
+
+ // 创建代理对象
+mapperProxyFactory.newInstance(sqlSession);
+
+//执行代理方法
+
+//找到相应的，sql类型，如查询，执行，然后封装返回结果。
+
+spring boot使用属性文件代替了xml文件,使用SqlSessionFactoryBean来加载属性配置，
+然后再构造一个SqlSessionFactory，解析映射文件，
+又使用SqlSessionTemplate实现了SqlSession
 
 ## 属性文件
 
@@ -4572,7 +4606,7 @@ public class MapperFactoryBean<T> extends SqlSessionDaoSupport implements Factor
 }
 ```
 
-springboot使用SqlSessionTemplate作为一个bean代替了SqlSession
+springboot使用SqlSessionTemplate作为一个bean实现了SqlSession
 
 ```java
 public class SqlSessionTemplate implements SqlSession, DisposableBean {

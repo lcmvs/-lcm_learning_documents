@@ -1,5 +1,9 @@
 # nacos学习
 
+[nacos重要文章](https://www.liaochuntao.cn/categories/nacos/)
+
+[支持Dubbo生态发展，阿里巴巴启动新的开源项目 Nacos](https://yq.aliyun.com/articles/604028)
+
 [Nacos](https://github.com/alibaba/Nacos) 是阿里巴巴开源的一个更易于构建云原生应用的动态服务发现、配置管理和服务管理平台。
 
 关于 Nacos Spring Cloud 的详细文档请参看：[Nacos Config](https://github.com/spring-cloud-incubator/spring-cloud-alibaba/wiki/Nacos-config) 和 [Nacos Discovery](https://github.com/spring-cloud-incubator/spring-cloud-alibaba/wiki/Nacos-discovery)。
@@ -35,6 +39,7 @@ spring:
     nacos:
       discovery:
         server-addr: 119.29.246.230:8848
+        namespace: 423905ea-6688-434e-a178-952ae4517b71
 ```
 
 ### 3.开启服务注册与发现功能
@@ -292,8 +297,6 @@ spring:
 
 
 ## 源码分析
-
-
 
 ### 配置管理naming
 
