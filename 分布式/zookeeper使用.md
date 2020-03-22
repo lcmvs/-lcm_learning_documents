@@ -403,6 +403,16 @@ void addAuthInfo(String scheme, byte auth[]);
 
 
 
+## 分布式应用
+
+### 分布式协调通知
+
+
+
+### 分布式锁
+
+
+
 ## ZkClient
 
 [ZkClient使用](https://cloud.tencent.com/developer/article/1470953)
