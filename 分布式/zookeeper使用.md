@@ -405,13 +405,58 @@ void addAuthInfo(String scheme, byte auth[]);
 
 ## 分布式应用
 
-### 分布式协调通知
+### 分布式消息队列
 
 
 
 ### 分布式锁
 
+#### 排他锁
 
+/exclusive_lock
+​	/lock
+
+获取锁：
+
+所有客户端都试图调用create()，创建临时节点，zookeeper保证只有一个客户端创建成功，那么就可以认为该客户端获取了锁。
+
+获取锁失败的客户端，需要注册一个子节点变更的watcher监听，以便实时监听lock。
+
+释放锁：
+
+获取锁的客户端宕机，或者客户端主动删除锁节点。
+
+
+
+#### 共享锁
+
+/shared_lock
+	/host1-r-0000000001
+	/host2-w-0000000002
+	/host3-r-0000000003
+	/host4-r-0000000004
+
+获取锁：
+
+所有客户端都回到/shared_lock下建立**临时顺序节点**，如果当前是读请求，那么就创建例如/shared_lock/host1-r-0000000001这样的节点，写请求，创建/shared_lock/host2-w-0000000002这样的节点。
+
+1.创建临时顺序节点。
+
+2.获取/shared_lock子节点列表，对该节点注册子节点变化监听。
+
+3.确定自己的节点序号再子节点的顺序。
+
+4.读请求：如果前面没有写请求，表示自己已经获取了共享锁，开始读。
+
+写请求：如果自己是最前的节点，获取锁，否则阻塞等待。
+
+5.收到watcher，重复步骤2。
+
+#### 改进共享锁
+
+共享锁，每次子节点变化，需要通知全部客户端，获取子节点列表，如果集群太大，效率太低。
+
+其实可以只注册比自己小的节点watcher。
 
 ## ZkClient
 
@@ -587,41 +632,3 @@ public interface IZkStateListener {
 
 
 
-## Curator
-
-[Zookeeper客户端Curator使用详解](http://throwable.coding.me/2018/12/16/zookeeper-curator-usage/)
-
-Curator是Netflix公司开源的一套zookeeper客户端框架，解决了很多Zookeeper客户端非常底层的细节开发工作，包括连接重连、反复注册Watcher和NodeExistsException异常等等。Patrixck Hunt（Zookeeper）以一句“Guava is to Java that Curator to Zookeeper”给Curator予高度评价。
-
-- **curator-framework**：对zookeeper的底层api的一些封装。
-
-- **curator-client**：提供一些客户端的操作，例如重试策略等。
-
-- **curator-recipes**：封装了一些高级特性，如：Cache事件监听、选举、分布式锁、分布式计数器、分布式Barrier等。
-
-  ```xml
-  <dependency>
-      <groupId>org.apache.curator</groupId>
-      <artifactId>curator-framework</artifactId>
-      <version>2.12.0</version>
-  </dependency>
-  <dependency>
-      <groupId>org.apache.curator</groupId>
-      <artifactId>curator-recipes</artifactId>
-      <version>2.12.0</version>
-  </dependency>
-  ```
-
-### 分布式锁
-
-
-
-### 分布式队列
-
-
-
-### 分布式计数器
-
-
-
-### 分布式屏障
