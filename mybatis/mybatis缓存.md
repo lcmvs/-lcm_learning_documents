@@ -43,7 +43,7 @@ public class MybatisSqlSessionTest {
 }
 ```
 使用了spring的声明式事务，同一个事务内的sql执行使用的是同一个sqlSession，测试mybatis的一级缓存旧生效了，同一条查询执行了3次，但只是第一次查了数据库，后面全都使用了一级缓存。
-```
+```properties
 Creating a new SqlSession
 Registering transaction synchronization for SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@65600fb3]
 JDBC Connection [HikariProxyConnection@1787450654 wrapping com.mysql.cj.jdbc.ConnectionImpl@3cc9632d] will be managed by Spring
@@ -64,7 +64,7 @@ Transaction synchronization deregistering SqlSession [org.apache.ibatis.session.
 Transaction synchronization closing SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@65600fb3]
 ```
 没有使用spring的声明式事务，每条sql的执行，使用的是不同的sqlSession，所以即便是相同的查询，也不会被一级缓存所影响。
-```
+```properties
 Creating a new SqlSession
 SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@5aea8994] was not registered for synchronization because synchronization is not active
 JDBC Connection [HikariProxyConnection@547610892 wrapping com.mysql.cj.jdbc.ConnectionImpl@3cc9632d] will not be managed by Spring

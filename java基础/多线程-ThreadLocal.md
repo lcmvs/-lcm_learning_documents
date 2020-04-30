@@ -115,12 +115,33 @@ pool-2-thread-1:2
 
 ## 源码分析
 
-Thread类中有ThreadLocalMap对象，但是默认是null的。
+ThreadLocal主要通过ThreadLocalMap实现，每个Thread类中都有一个属性ThreadLocalMap，默认null，第一次添加键值对的时候，会new一个对象，key为ThreadLocal，value为线程本地变量值。
 
 ```java
 //Thread.java
 ThreadLocal.ThreadLocalMap threadLocals = null;
 ```
+
+### ThreadLocalMap
+
+ThreadLocalMap使用了WeakReference弱引用，也就是说每当每当下次gc，如果线程执行完毕，该键值对就会被回收，不会因为ThreadLocalMap的引用，而影响ThreadLocal的gc。
+
+```java
+static class ThreadLocalMap {
+
+    static class Entry extends WeakReference<ThreadLocal<?>> {
+        Object value;
+        Entry(ThreadLocal<?> k, Object v) {
+            super(k);
+            value = v;
+        }
+    }
+    
+    private Entry[] table;
+}
+```
+
+
 
 ### set
 
@@ -239,21 +260,3 @@ private void remove(ThreadLocal<?> key) {
 
 
 
-### ThreadLocalMap
-
-ThreadLocalMap使用了WeakReference弱引用，也就是说每当每当下次gc，如果线程执行完毕，该键值对就会被回收，不会因为ThreadLocalMap的引用，而影响ThreadLocal的gc。
-
-```java
-static class ThreadLocalMap {
-
-    static class Entry extends WeakReference<ThreadLocal<?>> {
-        Object value;
-        Entry(ThreadLocal<?> k, Object v) {
-            super(k);
-            value = v;
-        }
-    }
-    
-    private Entry[] table;
-}
-```

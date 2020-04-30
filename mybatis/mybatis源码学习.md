@@ -89,17 +89,13 @@ jdbc流程比较繁琐，开发一般只需要注意执行sql和获取结果的�
 
 #### 1.3.1 mybatis执行流程
 
-1. 读取配置文件
+1. 读取配置文件，创建 SqlSessionFactoryBuilder 对象，通过 SqlSessionFactoryBuilder 对象创建 SqlSessionFactory
 
-2. 创建 SqlSessionFactoryBuilder 对象
+2. 使用 SqlSessionFactory 创建 SqlSession
 
-3. 通过 SqlSessionFactoryBuilder 对象创建 SqlSessionFactory
+3. 为 Dao 接口生成代理类
 
-4. 通过 SqlSessionFactory 创建 SqlSession
-
-5. 为 Dao 接口生成代理类
-
-6. 调用接口方法访问数据库
+4. 调用接口方法访问数据库
 
    
 
@@ -299,7 +295,7 @@ public class ArticleTypeHandler extends BaseTypeHandler<ArticleTypeEnum> {
 前面贴了实体类，数据访问类，以及 SQL 映射文件。最后还差一个 MyBatis 的配置文件，这里贴出来。如下：
 
 ```xml
-<!-- mybatis-congif.xml -->
+<!-- mybatis-config.xml -->
 <configuration>
     <properties resource="jdbc.properties"/>
 
@@ -4614,5 +4610,95 @@ public class SqlSessionTemplate implements SqlSession, DisposableBean {
   public <T> T getMapper(Class<T> type) {
     return getConfiguration().getMapper(type, this);
   }
+}
+```
+
+### 线程安全
+
+```java
+private class SqlSessionInterceptor implements InvocationHandler {
+  @Override
+  public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+    SqlSession sqlSession = getSqlSession(
+        SqlSessionTemplate.this.sqlSessionFactory,
+        SqlSessionTemplate.this.executorType,
+        SqlSessionTemplate.this.exceptionTranslator);
+    try {
+      Object result = method.invoke(sqlSession, args);
+      if (!isSqlSessionTransactional(sqlSession, SqlSessionTemplate.this.sqlSessionFactory)) {
+        // force commit even on non-dirty sessions because some databases require
+        // a commit/rollback before calling close()
+        sqlSession.commit(true);
+      }
+      return result;
+    } catch (Throwable t) {
+      Throwable unwrapped = unwrapThrowable(t);
+      if (SqlSessionTemplate.this.exceptionTranslator != null && unwrapped instanceof PersistenceException) {
+        // release the connection to avoid a deadlock if the translator is no loaded. See issue #22
+        closeSqlSession(sqlSession, SqlSessionTemplate.this.sqlSessionFactory);
+        sqlSession = null;
+        Throwable translated = SqlSessionTemplate.this.exceptionTranslator.translateExceptionIfPossible((PersistenceException) unwrapped);
+        if (translated != null) {
+          unwrapped = translated;
+        }
+      }
+      throw unwrapped;
+    } finally {
+      if (sqlSession != null) {
+        closeSqlSession(sqlSession, SqlSessionTemplate.this.sqlSessionFactory);
+      }
+    }
+  }
+}
+```
+
+
+
+```java
+//SqlSessionUtils
+public static SqlSession getSqlSession(SqlSessionFactory sessionFactory, ExecutorType executorType, PersistenceExceptionTranslator exceptionTranslator) {
+
+  notNull(sessionFactory, NO_SQL_SESSION_FACTORY_SPECIFIED);
+  notNull(executorType, NO_EXECUTOR_TYPE_SPECIFIED);
+
+  SqlSessionHolder holder = (SqlSessionHolder) TransactionSynchronizationManager.getResource(sessionFactory);
+
+  SqlSession session = sessionHolder(executorType, holder);
+  if (session != null) {
+    return session;
+  }
+
+  LOGGER.debug(() -> "Creating a new SqlSession");
+  session = sessionFactory.openSession(executorType);
+
+  registerSessionHolder(sessionFactory, executorType, exceptionTranslator, session);
+
+  return session;
+}
+```
+
+
+
+```java
+//DefaultSqlSessionFactory
+@Override
+public SqlSession openSession(ExecutorType execType) {
+  return openSessionFromDataSource(execType, null, false);
+}
+
+private SqlSession openSessionFromDataSource(ExecutorType execType, TransactionIsolationLevel level, boolean autoCommit) {
+    Transaction tx = null;
+    try {
+        final Environment environment = configuration.getEnvironment();
+        final TransactionFactory transactionFactory = getTransactionFactoryFromEnvironment(environment);
+        tx = transactionFactory.newTransaction(environment.getDataSource(), level, autoCommit);
+        final Executor executor = configuration.newExecutor(tx, execType);
+        return new DefaultSqlSession(configuration, executor, autoCommit);
+    } catch (Exception e) {
+        closeTransaction(tx); // may have fetched a connection so lets call close()
+        throw ExceptionFactory.wrapException("Error opening session.  Cause: " + e, e);
+    } finally {
+        ErrorContext.instance().reset();
+    }
 }
 ```

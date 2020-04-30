@@ -60,7 +60,7 @@ public class DemoAspect {
 //@Around("") 环绕通知
 //@AfterReturning("") 正常返回通知
 //@AfterThrowing("") 异常返回通知
-//@After("") finall通知
+//@After("") finally通知
 ```
 ### 通知类型
 
@@ -179,7 +179,7 @@ execution(* joke(String, ..))
 
 - **匹配方法签名**
 
-```
+```java
 // 匹配指定包中的所有方法
 execution(* com.xys.service.*(..))
 
@@ -195,7 +195,7 @@ execution(public int com.xys.service.*(String name, ..))
 
 - **匹配类型签名**
 
-```
+```java
 // 匹配指定包中的所有方法，但不包括子包
 within(com.xys.service.*)
 
@@ -211,14 +211,14 @@ within(UserDao+)
 
 - **匹配Bean名字**
 
-```
+```java
 // 匹配以指定名字结尾的bean中的所有方法
 bean(*Service)
 ```
 
 - **切点表达式组合**
 
-```
+```java
 // 匹配以Service或ServiceImpl结尾的bean
 bean(*Service || *ServiceImpl)
 
