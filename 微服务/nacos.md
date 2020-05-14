@@ -306,9 +306,9 @@ spring:
 
 
 
-## 源码分析
+# 源码分析
 
-### 配置管理naming
+## 配置管理naming
 
 [nacos源码分析(二)--------客户端获取配置中心的实现](https://juejin.im/post/5db79507f265da4d34299cc4)
 
@@ -591,11 +591,11 @@ class LongPollingRunnable implements Runnable {
 
 
 
-### 服务发现config
+## 服务发现config
 
 
 
-#### example
+### example
 
 ```java
 public class NamingExample {
@@ -631,7 +631,7 @@ public class NamingExample {
 
 
 
-#### 构造service
+### 构造service
 
 ```java
 public static NamingService createNamingService(Properties properties) throws NacosException {
@@ -793,7 +793,7 @@ public class UpdateTask implements Runnable {
 
 
 
-#### 服务注册
+### 服务注册
 
 ```java
 //NacosNamingService.java
@@ -847,9 +847,50 @@ public void registerService(String serviceName, String groupName, Instance insta
 }
 ```
 
+#### server端
 
+```java
+`@CanDistro@RequestMapping(value = "", method = RequestMethod.POST)public String register(HttpServletRequest request) throws Exception {    String serviceName = WebUtils.required(request, CommonParams.SERVICE_NAME);    String namespaceId = WebUtils.optional(request, CommonParams.NAMESPACE_ID, Constants.DEFAULT_NAMESPACE_ID);    serviceManager.registerInstance(namespaceId, serviceName, parseInstance(request));    return "ok";}`
+```
 
-#### 监听服务
+#### createEmptyService
+
+这里看到有一个`createEmptyService`方法，这是由于`Nacos`的`Model`设计——`service --> cluster --> instance`，所有`instance`是需要挂在`service`下面的，因此如果没有`service`的话，`instance`就无法注册，而`server`端不知道`instance`所挂的`service`是否存在，因此需要先执行这个`createEmptyService`方法
+
+```java
+public void createEmptyService(String namespaceId, String serviceName, boolean local) throws NacosException {
+    Service service = getService(namespaceId, serviceName);
+    // 如果服务不存在，则创建一个新的服务——Service
+    if (service == null) {
+
+        Loggers.SRV_LOG.info("creating empty service {}:{}", namespaceId, serviceName);
+        service = new Service();
+        service.setName(serviceName);
+        service.setNamespaceId(namespaceId);
+
+        // 设置服务所在的分组信息
+        service.setGroupName(Constants.DEFAULT_GROUP);
+        // now validate the service. if failed, exception will be thrown
+        service.setLastModifiedMillis(System.currentTimeMillis());
+
+        // 重新计算 service 的签名信息
+        service.recalculateChecksum();
+        // 对 cluster 进行校验
+        service.validate();
+        if (local) {
+            //将 service 放入容器中
+            putService(service);
+            service.init();
+                consistencyService.listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), true), service);
+                consistencyService.listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), false), service);
+        } else {
+            addOrReplaceService(service);
+        }
+    }
+}
+```
+
+### 监听服务
 
 ```java
 //NacosNamingService.java
@@ -916,61 +957,7 @@ private class Notifier implements Runnable {
 
 
 
-### 一致性协议
 
-[Nacos 注册中心的设计原理详解](https://www.infoq.cn/article/B*6vyMIKao9vAKIsJYpE)
-
-数据一致性是分布式系统永恒的话题，Paxos 协议的艰深更让数据一致性成为程序员大牛们吹水的常见话题。不过从协议层面上看，一致性的选型已经很长时间没有新的成员加入了。目前来看基本可以归为两家：一种是基于 Leader 的非对等部署的单点写一致性，一种是对等部署的多写一致性。当我们选用服务注册中心的时候，并没有一种协议能够覆盖所有场景，例如当注册的服务节点不会定时发送心跳到注册中心时，强一致协议看起来是唯一的选择，因为无法通过心跳来进行数据的补偿注册，第一次注册就必须保证数据不会丢失。而当客户端会定时发送心跳来汇报健康状态时，第一次的注册的成功率并不是非常关键（当然也很关键，只是相对来说我们容忍数据的少量写失败），因为后续还可以通过心跳再把数据补偿上来，此时 Paxos 协议的单点瓶颈就会不太划算了，这也是 Eureka 为什么不采用 Paxos 协议而采用自定义的 Renew 机制的原因。
-
-这两种数据一致性协议有各自的使用场景，对服务注册的需求不同，就会导致使用不同的协议。Nacos 因为要支持多种服务类型的注册，并能够具有机房容灾、集群扩展等必不可少的能力，在 1.0.0 正式支持 AP 和 CP 两种一致性协议并存。1.0.0 重构了数据的读写和同步逻辑，将与业务相关的 CRUD 与底层的一致性同步逻辑进行了分层隔离。然后将业务的读写（主要是写，因为读会直接使用业务层的缓存）抽象为 Nacos 定义的数据类型，调用一致性服务进行数据同步。在决定使用 CP 还是 AP 一致性时，使用一个代理，通过可控制的规则进行转发。
-
-目前的一致性协议实现，一个是基于简化的 Raft 的 CP 一致性，一个是基于自研协议 Distro 的 AP 一致性。Raft 协议不必多言，基于 Leader 进行写入，其 CP 也并不是严格的，只是能保证一半所见一致，以及数据的丢失概率较小。Distro 协议则是参考了内部 ConfigServer 和开源 Eureka，在不借助第三方存储的情况下，实现基本大同小异。Distro 重点是做了一些逻辑的优化和性能的调优。
-
-
-
-#### Distro算法实现ap
-
-Eureka是一个AP模式的服务发现框架，在Eureka集群模式下，Eureka采取的是Server之间互相广播各自的数据进行数据复制、更新操作；并且Eureka在客户端与注册中心出现网络故障时，依然能够获取服务注册信息——Eureka实现了客户端对于服务注册信息的缓存
-
-Nacos在AP模式下的一致性策略就类似于Eureka，采用`Server`之间互相的数据同步来实现数据在集群中的同步、复制操作。
-
-
-
-#### raft算法实现cp
-
-[Spring Cloud Alibaba Nacos（心跳与选举）](https://segmentfault.com/a/1190000019698113)
-
-[Nacos数据一致性](https://blog.csdn.net/liyanan21/article/details/89320872)
-
-[Nacos中Raft算法的实现](https://blog.csdn.net/smlCSDN/article/details/100099207)
-
-[动画演示](<http://raft.taillog.cn/>)
-
-在Raft中，节点有三种角色：
-
-- Leader：领导者
-- Candidate：候选人
-- Follower：跟随者
-
-##### 选举
-
-服务启动和leader挂了，会发生选举：
-
-所有节点启动的时候，都是follower状态。 如果在一段时间内如果没有收到leader的心跳（可能是没有leader，也可能是leader挂了），那么follower会变成Candidate。然后发起选举，选举之前，会增加term，这个term和zookeeper中的epoch的道理是一样的。
-
-leader会向follower发送心跳，一段时间follower获取不到心跳，那么follower会变成Candidate，进行选举，选举之前，Candidate的term任期会增加，给自己投一票，发送给其他的follower，其他follower发现Candidate的term比自己的大，就投票给这个Candidate，否则投票给自己，投票超过半数就选举成功。
-
-在Raft算法中，会有两个超时时间设置来控制选举过程
-
-首先是 竞选超时：竞选超时是指跟随者成为候选人的时间，竞选超时一般是150毫秒到300毫秒之间的随机数，当到达竞选超时时间后，跟随者转变为候选人角色，并进入到 选举周期，为自己发起投票，此时候选人将发送vote请求给其它节点，如果收到请求的节点在当前选举周期中还没有投过票，则这个节点会投票给这个候选人，然后这个节点重置它的选举周期时间，重新计时，一旦候选人获得半数以上的赞成投票，那么它将成为领导人，之后领导人将发送 附加日志 指令给跟随者，这些消息是周期性发送，也叫 心跳包（以此来保证它的领导人地位），跟随者将响应 附加日志 消息，选举周期将一直持续直到某个跟随者没有收到心跳包并成为候选人
-
-在同一个周期里有两个节点同时发起了竞选请求，并且每个都收到了一个跟随者的投票响应，现在，每个候选人都有两票，并且都无法获得更多选票，这种情况下，两个节点将等待一轮竞选超时后重新发起竞选请求
-
-##### 日志复制
-
-一旦选举出了领导者，我们需要向所有节点通知这一消息，并需要持续维持领导人地位，这是通过周期性的发送 ﻿附加日志 消息（心跳包）实现的
-
-首先，一个客户端发送变化的数据给领导人，这条变更记录被添加到领导人的日志里，然后在下一个心跳中将变更记录发送给跟随者，一旦大多数的跟随者确认了这条记录，那么这条记录就会被提交，最后将响应客户端。
 
 ## 云服务
 
