@@ -1,7 +1,5 @@
 
 
-[tomcat对keep-alive的实现逻辑](https://hongjiang.info/how-tomcat-implements-keep-alive/)
-
 ## Tomcat线程池
 
 tomcat线程池和jdk默认线程池最大不同就是，阻塞队列和最大线程池这两个条件的顺序问题。
@@ -19,7 +17,7 @@ tomcat的线程池，达到核心线程数量，则是会先继续创建新的�
 
 ### 重写阻塞队列
 
-tomcat使用了一个**无界队列**作为线程池的阻塞队列，但是重写了队列的offer方法，**当其线程池大小小于maximumPoolSize的时候，返回false**。这样线程池的最大线程数就不会失效了，线程池会继续创建线程，直到达到最大线程数，tomcat的阻塞队列是一个无界队列，但是外层使用一个默认10000大小的共享锁LimitLatch来控制最大连接数。
+tomcat使用了一个无界队列作为线程池的阻塞队列，但是重写了队列的offer方法，**当其线程池大小小于maximumPoolSize的时候，返回false**。这样线程池的最大线程数就不会失效了，线程池会继续创建线程，直到达到最大线程数，tomcat的阻塞队列是一个无界队列，但是外层使用一个默认10000大小的共享锁LimitLatch来控制最大连接数。
 
 ```java
 public class TaskQueue extends LinkedBlockingQueue<Runnable> {

@@ -1257,7 +1257,7 @@ public final class CallServerInterceptor implements Interceptor {
 
 # 4.连接池
 
-okhttp内部实现了连接池，所有使用单例会更加合适。
+okhttp内部实现了线程池，所有使用单例会更加合适。
 
 我们知道在负责的网络环境下，频繁的进行建立Sokcet连接（TCP三次握手）和断开Socket（TCP四次分手）是非常消耗网络资源和浪费时间的，HTTP中的keepalive连接对于 降低延迟和提升速度有非常重要的作用。
 

@@ -1,72 +1,3 @@
-# @Configuration
-
-
-
-# @Bean
-
-- **@Bean** 注解作用在方法上
-- **@Bean** 指示一个方法返回一个 **Spring** 容器管理的 **Bean**
-- **@Bean** 方法名与返回类名一致，首字母小写
-- **@Bean** 一般和 **@Component** 或者 **@Configuration** 一起使用
-- **@Bean** 注解默认作用域为单例 **singleton** 作用域，可通过 **@Scope(“prototype”)** 设置为原型作用域
-
-## 使用示例
-
-- **name** 默认bean的name为方法名，多个为别名
-- **value** 代表备案的别名
-- **initMethod** 和 **destroyMethod** ，bean生命周期，初始化和销毁时调用。
-- **autowireCandidate** 默认true，代表是否允许自动装配。
-
-```java
-@Configuration
-public class BeanConfig {
-
-    @Bean(name = {"myBeanA","beanA"},
-          initMethod = "init",destroyMethod = "destroy",
-          autowireCandidate = true)
-    public BeanA beanA() {
-        return new BeanA();
-    }
-
-}
-
-public class BeanA implements MyBean{
-
-    public void init() {
-        System.out.println("MyBean开始初始化...");
-    }
-
-    public void destroy() {
-        System.out.println("MyBean销毁...");
-    }
-
-
-    public void hello() {
-        System.out.println("hello...");
-    }
-
-}
-```
-
-## 搭配其他注解
-
-### @Bean 与其他注解一起使用
-
-- **@Profile** 注解：为在不同环境下使用不同的配置提供了支持，如开发环境和生产环境的数据库配置是不同的
-- **@Scope** 注解：将 **Bean** 的作用域从单例改变为指定的作用域
-- **@Lazy** 注解：只有在默认单例作用域的情况下才有实际效果
-- **@DependsOn** 注解：表示在当前 **Bean** 创建之前需要先创建特定的其他 **Bean**
-
-比如下面样例，**Bean** 的作用域默认是单例的，我们配合 **@Scope** 注解将其改成 **prototype** 原型模式（每次获取 **Bean** 的时候会有一个新的实例）
-
-```java
-@Bean()
-@Scope("prototype")
-public MyBean myBean() {
-    return new MyBean();
-}
-```
-
 # @Import注解
 
 [相亲相爱的@Import和@EnableXXX](https://blog.csdn.net/qq_34436819/article/details/101052199)
@@ -75,33 +6,6 @@ public MyBean myBean() {
 
 @Import其实是一种向spring注入bean的注解，他有三种方式向spring中注入bean。
 
-之所以使用@Import，是因为需要使用外部依赖的配置。
-## 为什么使用@Import
-
-As we said, in `library-a` you have this configuration file.
-
-```java
-@Configuration
-public class ConfigurationA {
-    @Bean
-    public BeanA beanA() {
-       return new BeanA();
-    }
-}
-```
-
-In `library-b` you must have this configuration file if you want to use `BeanA`
-
-```java
-@Configuration
-@Import(ConfigurationA.class)
-public class ConfigurationB {
-    @Bean
-    public BeanB beanB(BeanA beanA) {
-       return new BeanB(beanA);
-    }
-}
-```
 **测试工程：lcm-code**
 
 ## 注入方式
@@ -138,14 +42,9 @@ public class LcmCodeApplicationTests {
 
 
 
-### 2.ImportSelector
+### 2.通过ImportSelector接口注入
 
 ```java
-@Configuration
-@Import(BeanBImportSelector.class)
-public class BeanBConfig {
-}
-
 public class BeanB {
 
     public void test(){
@@ -171,6 +70,11 @@ public class BeanBImportSelector implements ImportSelector {
 
 }
 
+@Configuration
+@Import(BeanBImportSelector.class)
+public class BeanBConfig {
+}
+
 @RunWith(SpringRunner.class)
 @SpringBootTest
 public class LcmCodeApplicationTests {
@@ -192,7 +96,7 @@ public class LcmCodeApplicationTests {
 
 
 
-### 3.ImportBeanDefinitionRegistrar
+### 3.通过ImportBeanDefinitionRegistrar接口注入
 
 ```java
 public class BeanC {
@@ -354,6 +258,3 @@ public class RedisConfig {
 
 }
 ```
-
-
-

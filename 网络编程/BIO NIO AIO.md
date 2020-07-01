@@ -132,7 +132,7 @@ select 和 poll 都有一个共同的问题，那就是**它们都只会告诉�
 
 Java NIO 中三大组件 **Buffer、Channel、Selector** 
 
-### ByteBuffer
+### Buffer
 
 ![6](assets/6.png)一个 Buffer 本质上是内存中的一块，我们可以将数据写入这块内存，之后从这块内存获取数据。
 
@@ -149,16 +149,12 @@ MappedByteBuffer 用于实现内存映射文件，也不是本文关注的重点
 ```java
 public abstract class Buffer {
 
-    //写：初始值是 0，每往 Buffer 中写入一个值，position 就自动加 1，代表下一次的写入位置。
-    //读：每读一个值，position 就自动加 1。
+    //初始值是 0，每往 Buffer 中写入一个值，position 就自动加 1，代表下一次的写入位置。读操作的时候也是类似的，每读一个值，position 就自动加 1。
     private int position = 0;
-    
-    //写：limit 代表的是最大能写入的数据，这个时候 limit 等于 capacity。
-    //读：此时的 limit 等于 Buffer 中实际的数据大小，因为 Buffer 不一定被写满了。
+    //写操作模式下，limit 代表的是最大能写入的数据，这个时候 limit 等于 capacity。写结束后，切换到读模式，此时的 limit 等于 Buffer 中实际的数据大小，因为 Buffer 不一定被写满了。
     //从写操作模式到读操作模式切换的时候（flip），position 都会归零，这样就可以从头开始读写了。
     private int limit;
-    
-    //缓冲区的容量，一旦设定就不可以更改。容量达到 capacity，需要清空 Buffer，才能重新写入值。
+    //缓冲区的容量，一旦设定就不可以更改。比如 capacity 为 1024 的 IntBuffer，代表其一次可以存放 1024 个 int 类型的值。一旦 Buffer 的容量达到 capacity，需要清空 Buffer，才能重新写入值。
     private int capacity;
     
 }
@@ -171,8 +167,6 @@ public abstract class Buffer {
 ```java
 //allocate(int capacity)
 ByteBuffer byteBuf = ByteBuffer.allocate(1024);
-//直接内存
-ByteBuffer.allocateDirect(1024);
 IntBuffer intBuf = IntBuffer.allocate(1024);
 LongBuffer longBuf = LongBuffer.allocate(1024);
 ```
