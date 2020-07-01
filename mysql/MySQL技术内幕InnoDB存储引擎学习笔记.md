@@ -150,7 +150,7 @@ Distributed Transactions
 
 redo log 称为重做日志，用来保证事务的**原子性**和**持久性**。undo log 用来保证事务的**一致性**。
 
-redo恢复提交事务修改的叶操作。undo回滚行记录到某个特定版本。
+redo恢复提交事务修改的页操作。undo回滚行记录到某个特定版本。
 
 redo通常是物理日志，记录的是页的物理修改操作。undo是逻辑日志，根据每行记录进行记录。
 
@@ -168,25 +168,143 @@ redo通常是物理日志，记录的是页的物理修改操作。undo是逻辑
 
 2，表示事务提交时将重做日志写入重做日志文件redo log file，但**仅写入文件系统的缓存中**，不进行fsync操作。在这个设置下，**当MySQL数据库发生宕机而操作系统不发生宕机时，并不会导致事务的丢失。**也就是说如果操作系统崩溃或者断电，会导致事务数据丢失。
 
+表7-1显示在参数innodb_flush_log_at_trx_commit不同设置下， 调用存储过程p_load插入50万行记录所需时间。 
+
 **![1584431208588](assets/1584431208588.png)**
 
 redo log是InnoDB存储引擎层产生的，而二进制日志binary log，是在数据库的上层产生的。二进制日志记录的是对应的sql语句。而InnoDB的redo log记录的是对每个页的修改。
 
+#### 为什么需要redo log
+
+在默认情况下， 在InnoDB存储引擎的数据目录下会有两个名为ib_logfile0和ib_logfile1的文件。 在MySQL官方手册中将其称为InnoDB存储引擎的日志文件， 不过更准确的定义应该是重做日志文件（redo log file） 。 为什么强调是重做日志文件呢？ 因为重做日志文件对于InnoDB存储引擎至关重要， 它们记录了对于InnoDB存储引擎的事
+务日志。
+
+当实例或介质失败（media failure） 时， 重做日志文件就能派上用场。 例如， 数据库由于所在主机掉电导致实例失败， InnoDB存储引擎会使用重做日志恢复到掉电前的时刻， 以此来保证数据的完整性。 
+
+每个InnoDB存储引擎至少有1个重做日志文件组（group） ， 每个文件组下至少有2个重做日志文件， 如默认的ib_logfile0和ib_logfile1。 为了得到更高的可靠性， 用户可以设置多个的镜像日志组（mirrored log groups） ， 将不同的文件组放在不同的磁盘上， 以此提高重做日志的高可用性。 在日志组中每个重做日志文件的大小一致，
+并以循环写入的方式运行。 InnoDB存储引擎先写重做日志文件1， 当达到文件的最后时， 会切换至重做日志文件2， 再当重做日志文件2也被写满时， 会再切换到重做日志文件1中。 图3-2显示了一个拥有3个重做日志文件的重做日志文件组。 
+
+![1592882147219](assets/1592882147219.png)
+
+#### 属性配置
+
+下列参数影响着重做日志文件的属性：
+❑innodb_log_file_size
+❑innodb_log_files_in_group
+❑innodb_mirrored_log_groups
+❑innodb_log_group_home_dir
+
+参数innodb_log_file_size指定每个重做日志文件的大小。 在InnoDB1.2.x版本之前， 重做日志文件总的大小不得大于等于4GB， 而1.2.x版本将该限制扩大为了512GB。
+
+参数innodb_log_files_in_group指定了日志文件组中重做日志文件的数量， 默认为2。 
+
+参数innodb_mirrored_log_groups指定了日志镜像文件组的数量， 默认为1， 表示只有一个日志文件组， 没有镜像。 若磁盘本身已经做了高可用的方案， 如磁盘阵列， 那么可以不开启重做日志镜像的功能。 
+
+参数innodb_log_group_home_dir指定了日志文件组所在路径， 默认为./， 表示在MySQL数据库的数据目录下。
+
+以下显示了一个关于重做日志组的配置：
+```sql
+mysql＞SHOW VARIABLES LIKE'innodb%log%'\G;……
+***************************4.row**************
+Variable_name:innodb_log_file_size
+Value:5242880
+***************************5.row**************
+Variable_name:innodb_log_files_in_group
+Value:2
+***************************6.row**************
+Variable_name:innodb_log_group_home_dir
+Value:./
+***************************7.row**************
+Variable_name:innodb_mirrored_log_groups
+Value:1
+7 rows in set(0.00 sec)
+```
+重做日志文件的大小设置对于InnoDB存储引擎的性能有着非常大的影响。 一方面重做日志文件不能设置得太大， 如果设置得很大， 在恢复时可能需要很长的时间； 另一方面又不能设置得太小了， 否则可能导致一个事务的日志需要多次切换重做日志文件。 此外， 重做日志文件太小会导致频繁地发生async checkpoint， 导致性能的抖动。 例如， 用户可能会在错误日志中看到如下警告信息：
+```log
+090924 11:39:44 InnoDB:ERROR:the age of the
+last checkpoint is 9433712,
+InnoDB:which exceeds the log group capacity
+9433498.
+InnoDB:If you are using big BLOB or TEXT
+rows,you must set the
+InnoDB:combined size of log files at least
+10 times bigger than the
+InnoDB:largest such row.
+090924 11:40:00 InnoDB:ERROR:the age of the
+last checkpoint is 9433823,
+InnoDB:which exceeds the log group capacity
+9433498.
+InnoDB:If you are using big BLOB or TEXT
+rows,you must set the
+InnoDB:combined size of log files at least
+10 times bigger than the
+InnoDB:largest such row.
+090924 11:40:16 InnoDB:ERROR:the age of the
+last checkpoint is 9433645,
+InnoDB:which exceeds the log group capacity
+9433498.
+InnoDB:If you are using big BLOB or TEXT
+rows,you must set the
+InnoDB:combined size of log files at least
+10 times bigger than the
+InnoDB:largest such row.
+```
+上面错误集中在InnoDB:ERROR:the age of the last checkpoint is 9433645， InnoDB:which exceeds the log group capacity 9433498。 这是因为重做日志有一个capacity变量， 该值代表了最后的检查点不能超过这个阈值， 如果超过则必须将缓冲池（innodb buffer pool） 中脏页列表（flush list） 中的部分脏数据页写回磁盘， 这时会导致用户线程的阻塞。 
+
+#### redo log和binlog
+
+首先， 二进制日志会记录所有与MySQL数据库有关的日志记录， 包括InnoDB、 MyISAM、Heap等其他存储引擎的日志。 而InnoDB存储引擎的重做日志只记录有关该存储引擎本身的事务日志。
+
+其次， **记录的内容不同， 无论用户将二进制日志文件记录的格式设为STATEMENT还是ROW， 又或者是MIXED， 其记录的都是关于一个事务的具体操作内容， 即该日志是逻辑日志。**而InnoDB存储引擎的重做日志文件记录的是关于每个页（Page） 的更改的物理情况。此外， 写入的时间也不同， 二进制日志文件仅在事务提交前进行提交， 即只写磁盘一次， 不论这时该事务多大。 **而在事务进行的过程中， 却不断有重做日志条目（redo entry） 被写入到重做日志文件中。**
+
+在InnoDB存储引擎中， 对于各种不同的操作有着不同的重做日志格式。 到InnoDB 1.2.x版本为止， 总共定义了51种重做日志类型。 虽然各种重做日志的类型不同， 但是它们有着基本的格式，表3-2显示了重做日志条目的结构 
+
+从表3-2可以看到重做日志条目是由4个部分组成：
+❑redo_log_type占用1字节， 表示重做日志的类型
+❑space表示表空间的ID， 但采用压缩的方式， 因此占用的空间可能小于4字节
+❑page_no表示页的偏移量， 同样采用压缩的方式
+❑redo_log_body表示每个重做日志的数据部分， 恢复时需要调用相应的函数进行解析 
+
+在第2章中已经提到， 写入重做日志文件的操作不是直接写， 而是先写入一个重做日志缓冲
+（redo log buffer） 中， 然后按照一定的条件顺序地写入日志文件。 图3-3很好地诠释了重做日志的
+写入过程。 
+
+![1592881763476](assets/1592881763476.png)
+
+从重做日志缓冲往磁盘写入时， 是按512个字节， 也就是一个扇区的大小进行写入。 因为扇区是写入的最小单位， 因此可以保证写入必定是成功的。 因此在重做日志的写入过程中不需要有doublewrite。
+
+前面提到了从日志缓冲写入磁盘上的重做日志文件是按一定条件进行的， 那这些条件有哪些呢？ 第2章分析了主线程（master thread） ， 知道在主线程中每秒会将重做日志缓冲写入磁盘的重做日志文件中， 不论事务是否已经提交。 另一个触发写磁盘的过程是由参数innodb_flush_log_at_trx_commit控制， 表示在提交（commit） 操作时， 处理重做日志的方式。
+
+参数innodb_flush_log_at_trx_commit的有效值有0、 1、 2。 0代表当提交事务时， 并不将事务的重做日志写入磁盘上的日志文件， 而是等待主线程每秒的刷新。 1和2不同的地方在于： 1表示在执行commit时将重做日志缓冲同步写到磁盘， 即伴有fsync的调用。 2表示将重做日志异步写到磁盘， 即写到文件系统的缓存中。 因此不能完全保证在执行commit时肯定会写入重做日志文件， 只是有这个动作发生。
+
+因此**为了保证事务的ACID中的持久性， 必须将innodb_flush_log_at_trx_commit设置为1**， 也就是每当有事务提交时， 就必须确保事务都已经写入重做日志文件。 那么当数据库因为意外发生宕机时， 可以通过重做日志文件恢复， 并保证可以恢复已经提交的事务。 而将重做日志文件设置为0或2， 都有可能发生恢复时部分事务的丢失。 不同之处在于， 设置为2时， 当MySQL数据库发生宕机而操作系统及服务器并没有发生宕机时， 由于此时未写入磁盘的事务日志保存在文件系统缓存中， 当恢复时同样能保证数据不丢失。 
+
 ### undo log
 
-redo log记录了事务的行为，可以很好的通过其为页进行重做操作。
+重做日志记录了事务的行为， 可以很好地通过其对页进行“重做”操作。 **但是事务有时还需要进行回滚操作， 这时就需要undo。** 因此在对数据库进行修改时， InnoDB存储引擎不但会产生redo， 还会产生一定量的undo。 这样如果用户执行的事务或语句由于某种原因失败了， 又或者用户用一条ROLLBACK语句请求回滚， 就可以利用这些undo信息将数据回滚到修改之前的样子。
 
-**可以认为当delete一条记录时，undo log中会记录一条对应的insert记录，反之亦然，当update一条记录时，它记录一条对应相反的update记录。**
+redo存放在重做日志文件中， 与redo不同，undo存放在数据库内部的一个特殊段（segment）中， 这个段称为undo段（undo segment） 。 undo段位于共享表空间内。 可以通过py_innodb_page_info.py工具来查看当前共享表空间中undo的数量。 如下代码显示当前的共享表空间ibdata1内有2222个undo页。
+```shell
+[root@xen-server～]#python
+py_innodb_page_info.py/usr/local/mysql/data/ibdat
+Total number of page:46208:
+Insert Buffer Free List:13093
+Insert Buffer Bitmap:3
+System Page:5
+Transaction system Page:1
+Freshly Allocated Page:4579
+undo Log Page:2222
+File Segment inode:6
+B-tree Node:26296
+File Space Header:1
+扩展描述页:2
+```
+用户通常对undo有这样的误解： undo用于将数据库物理地恢复到执行语句或事务之前的样子——但事实并非如此。 undo是逻辑日志， 因此只是将数据库逻辑地恢复到原来的样子。 所有修改都被逻辑地取消了， 但是数据结构和页本身在回滚之后可能大不相同。 这是因为在多用户并发系统中， 可能会有数十、 数百甚至数千个并发事
+务。 数据库的主要任务就是协调对数据记录的并发访问。 比如， 一个事务在修改当前一个页中某几条记录， 同时还有别的事务在对同一个页中另几条记录进行修改。 因此， 不能将一个页回滚到事务开始的样子， 因为这样会影响其他事务正在进行的工作。 
 
-当执行rollback时，就可以从undo log中的逻辑记录读取到相应的内容并进行回滚。有时候应用到行版本控制的时候，也是通过undo log来实现的：当读取的某一行被其他事务锁定时，它可以从undo log中分析出该行记录以前的数据是什么，从而提供该行版本信息，让用户实现非锁定一致性读取。
+例如， 用户执行了一个INSERT 10W条记录的事务， 这个事务会导致分配一个新的段， 即表空间会增大。 在用户执行ROLLBACK时， 会将插入的事务进行回滚， 但是表空间的大小并不会因此而收缩。 **因此， 当InnoDB存储引擎回滚时， 它实际上做的是与先前相反的工作。** 对于每个INSERT， InnoDB存储引擎会完成一个DELETE；对于每个DELETE， InnoDB存储引擎会执行一个INSERT； 对于每个UPDATE， InnoDB存储引擎会执行一个相反的UPDATE， 将修改前的行放回去。
 
-undo log是采用段(segment)的方式来记录的，每个undo操作在记录的时候占用一个undo log segment。
+除了回滚操作， undo的另一个作用是MVCC， 即在InnoDB存储引擎中MVCC的实现是通过undo来完成。 当用户读取一行记录时， 若该记录已经被其他事务占用， 当前事务可以通过undo读取之前的行版本信息， 以此实现非锁定读取。
 
-另外，undo log也会产生redo log，因为undo log也要实现持久性保护。
-
-
-
-
-
-
+最后也是最为重要的一点是， undo log会产生redo log， 也就是undo log的产生会伴随着redolog的产生， 这是因为undo log也需要持久性的保护。 
 

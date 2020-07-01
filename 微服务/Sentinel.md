@@ -2,7 +2,9 @@
 
 [Spring Cloud Alibaba Sentinel](https://github.com/alibaba/spring-cloud-alibaba/wiki/Sentinel#spring-cloud-alibaba-sentinel)
 
-### Sentinel 介绍
+[Sentinel官方推荐博客](https://github.com/alibaba/Sentinel/blob/master/doc/awesome-sentinel.md)
+
+## Sentinel 介绍
 
 随着微服务的流行，服务和服务之间的稳定性变得越来越重要。 [Sentinel](https://github.com/alibaba/Sentinel) 以流量为切入点，从流量控制、熔断降级、系统负载保护等多个维度保护服务的稳定性。
 
@@ -13,7 +15,7 @@
 - **广泛的开源生态**： Sentinel 提供开箱即用的与其它开源框架/库的整合模块，例如与 Spring Cloud、Dubbo、gRPC 的整合。您只需要引入相应的依赖并进行简单的配置即可快速地接入 Sentinel。
 - **完善的 SPI 扩展点**： Sentinel 提供简单易用、完善的 SPI 扩展点。您可以通过实现扩展点，快速的定制逻辑。例如定制规则管理、适配数据源等。
 
-###  
+![Sentinel-features-overview](assets/50505538-2c484880-0aaf-11e9-9ffc-cbaaef20be2b.png)
 
 ### 如何使用 Sentinel
 
@@ -79,7 +81,7 @@ public class TestController {
 }
 ```
 
-#####  
+
 
 ##### Sentinel 控制台
 
@@ -93,8 +95,6 @@ Figure 1. Sentinel Dashboard
 
 开启该功能需要3个步骤：
 
-######  
-
 ###### 获取控制台
 
 您可以从 [release 页面](https://github.com/alibaba/Sentinel/releases) 下载最新版本的控制台 jar 包。
@@ -103,8 +103,6 @@ Figure 1. Sentinel Dashboard
 
 - 下载 [控制台](https://github.com/alibaba/Sentinel/tree/master/sentinel-dashboard) 工程
 - 使用以下命令将代码打包成一个 fat jar: `mvn clean package`
-
-######  
 
 ###### 启动控制台
 
@@ -115,8 +113,6 @@ java -Dserver.port=8080 -Dcsp.sentinel.dashboard.server=localhost:8080 -Dproject
 ```
 
 如若8080端口冲突，可使用 `-Dserver.port=新端口` 进行设置。
-
-####  
 
 #### 配置控制台信息
 
@@ -135,7 +131,7 @@ spring:
 
 更多 Sentinel 控制台的使用及问题参考： [Sentinel控制台](https://github.com/alibaba/Sentinel/wiki/%E6%8E%A7%E5%88%B6%E5%8F%B0)
 
-###  
+
 
 ### Feign 支持
 
@@ -182,7 +178,7 @@ class EchoServiceFallback implements EchoService {
 
 `EchoService` 接口中方法 `echo` 对应的资源名为 `GET:http://service-provider/echo/{str}`。
 
-###  
+
 
 ### RestTemplate 支持
 
@@ -229,7 +225,7 @@ Sentinel RestTemplate 限流的资源规则提供两种粒度：
 | ---- | ------------------------------------------------------------ |
 |      |                                                              |
 
-###  
+
 
 ### 动态数据源支持
 
@@ -284,7 +280,7 @@ spring.cloud.sentinel.datasource.ds4.apollo.rule-type=param-flow
 
 关于 Sentinel 动态数据源的实现原理，参考： [动态规则扩展](https://github.com/alibaba/Sentinel/wiki/%E5%8A%A8%E6%80%81%E8%A7%84%E5%88%99%E6%89%A9%E5%B1%95)
 
-###  
+
 
 ### Zuul 支持
 
@@ -309,7 +305,7 @@ spring.cloud.sentinel.datasource.ds4.apollo.rule-type=param-flow
 </dependency>
 ```
 
-###  
+
 
 ### Spring Cloud Gateway 支持
 
@@ -334,7 +330,7 @@ spring.cloud.sentinel.datasource.ds4.apollo.rule-type=param-flow
 </dependency>
 ```
 
-###  
+
 
 ### Endpoint 支持
 
@@ -345,7 +341,7 @@ spring.cloud.sentinel.datasource.ds4.apollo.rule-type=param-flow
 
 Sentinel Endpoint 里暴露的信息非常有用。包括当前应用的所有规则信息、日志目录、当前实例的 IP，Sentinel Dashboard 地址，Block Page，应用与 Sentinel Dashboard 的心跳频率等等信息。
 
-###  
+
 
 ### 配置
 

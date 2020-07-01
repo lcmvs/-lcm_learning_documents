@@ -395,8 +395,30 @@ SELECT * FROM t_order WHERE id > 100000 LIMIT 10
 
 
 
+## 分布式事务
 
 
+
+### xa
+
+```xml
+<!-- 使用XA事务时，需要引入此模块 -->
+<dependency>
+    <groupId>org.apache.shardingsphere</groupId>
+    <artifactId>sharding-transaction-xa-core</artifactId>
+    <version>${shardingsphere.version}</version>
+</dependency>
+```
+
+### seata
+```xml
+<!-- 使用BASE事务时，需要引入此模块 -->
+<dependency>
+    <groupId>org.apache.shardingsphere</groupId>
+    <artifactId>sharding-transaction-base-seata-at</artifactId>
+    <version>${sharding-sphere.version}</version>
+</dependency>
+```
 # Sharding-Proxy
 
 定位为透明化的数据库代理端，提供封装了数据库二进制协议的服务端版本，用于完成对异构语言的支持。 目前先提供MySQL/PostgreSQL版本，它可以使用任何兼容MySQL/PostgreSQL协议的访问客户端(如：MySQL Command Client, MySQL Workbench, Navicat等)操作数据，对DBA更加友好。
