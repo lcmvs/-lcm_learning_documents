@@ -1,3 +1,11 @@
+[深度剖析服务发现组件Netflix Eureka](https://blog.csdn.net/qiansg123/article/details/80127590)
+
+[微服务注册中心 Eureka 架构深入解读](https://www.infoq.cn/article/jlDJQ*3wtN2PcqTDyokh)
+
+[Eureka 源码解析](http://www.iocoder.cn/categories/Eureka/)
+
+[SpringCloud源码阅读](https://juejin.im/post/5dd367ce5188254eed5b279)
+
 # eureka 注册中心
 
 spring boot中使用注解@EnableEurekaServer，开启一个eureka注册中心。
@@ -48,21 +56,9 @@ public class EurekaServerMarkerConfiguration {
 
 `org.springframework.cloud.netflix.eureka.server`项目spring.factories资源文件中自动注入类`EurekaServerAutoConfiguration`，此类在自动注入的过程中，会判断开关是否打开来决定是否自动注入相关类
 
-```java
-@Configuration(proxyBeanMethods = false)
-@Import(EurekaServerInitializerConfiguration.class)
-@ConditionalOnBean(EurekaServerMarkerConfiguration.Marker.class)
-@EnableConfigurationProperties({ EurekaDashboardProperties.class,
-      InstanceRegistryProperties.class })
-@PropertySource("classpath:/eureka/server.properties")
-public class EurekaServerAutoConfiguration implements WebMvcConfigurer {
-    
-}
-```
-
 ## EurekaServerAutoConfiguration
 
-下面我们看看`EurekaServerAutoConfiguration`配置了什么东西。 (1.先看注解上相关配置
+下面我们看看`EurekaServerAutoConfiguration`配置了什么东西。
 
 ```java
 @Configuration
@@ -75,13 +71,13 @@ public class EurekaServerAutoConfiguration extends WebMvcConfigurerAdapter {
 	...
 }
 ```
-
+(1.先看注解上相关配置
 - 引入`EurekaServerInitializerConfiguration`类,此类继承了`SmartLifecycle`接口，所以会在spring启动完毕时回调此类的start()方法
 - EurekaDashboardProperties 表示Euerka面板相关配置属性。例如：是否打开面板；面板的访问路径
 - InstanceRegistryProperties 表示实例注册相关配置属性。例如：每分钟最大的续约数量，默认打开的通信数量 等
 - 加载`/eureka/server.properties`的配置属性。
 
-(2.再看类内部相关配置(代码比较长，这里只讲内容，建议打开源码看) **寻找类中的Bean**
+(2.再看类内部相关配置寻找类中的Bean
 
 - HasFeatures 注册HasFeatures表示Eureka特征，
 - EurekaServerConfigBean配置类，表示EurekaServer的配置信息。通过`@ConfigurationProperties(“eureka.server”)`映射我们的配置文件中的`eureka.server.xxxx`格式的配置信息（此类很重要啊，我们想修改EurekaServer的配置信息,可以配置`eureka.server.xxxx`覆盖此类中的默认配置）
@@ -213,180 +209,361 @@ public void initialize() {
 
 
 
-### 集群同步
 
-- Eureka-Server 集群不区分**主从节点**，所有节点**相同角色，完全对等**。
-- Eureka-Client 可以向**任意** Eureka-Server 发起任意**读写**操作，Eureka-Server 将操作复制到另外的 Eureka-Server 以达到**最终一致性**。注意，Eureka-Server 是选择了 AP 的组件。
 
-#### 节点初始化与更新
 
-`com.netflix.eureka.cluster.PeerEurekaNodes` ，用于管理PeerEurekaNode节点集合。
+
+# ----------------------------
+
+
+
+# 服务注册-register
+
+首先来看Register（服务注册），这个接口会在Service Provider启动时被调用来实现服务注册。同时，当Service Provider的服务状态发生变化时（如自身检测认为Down的时候），也会调用来更新服务状态。
+
+接口实现比较简单，如下图所示。
+![图片描述](assets/20161221133840879)
+
+
+1. ApplicationResource类接收Http服务请求，调用PeerAwareInstanceRegistryImpl的register方法
+1. PeerAwareInstanceRegistryImpl完成服务注册后，调用replicateToPeers向其它Eureka Server节点（Peer）做状态同步（异步操作）
+
+注册的服务列表保存在一个嵌套的hash map中：
+
+1. 第一层hash map的key是app name，也就是应用名字
+1. 第二层hash map的key是instance name，也就是实例名字
+```java
+private final ConcurrentHashMap<String, Map<String, Lease<InstanceInfo>>> registry =
+new ConcurrentHashMap<String, Map<String, Lease<InstanceInfo>>>();
+```
+
+## ApplicationResource
 
 ```java
-public class PeerEurekaNodes {
+@POST
+@Produces({"application/xml", "application/json"})
+public class ApplicationResource {
 
-    private static final Logger logger = LoggerFactory.getLogger(PeerEurekaNodes.class);
+    @POST
+    @Consumes({"application/json", "application/xml"})
+    public Response addInstance(InstanceInfo info,
+                                @HeaderParam(PeerEurekaNode.HEADER_REPLICATION) String isReplication) {
+        // 校验参数是否合法
+        logger.debug("Registering instance {} (replication={})", info.getId(), isReplication);
+        // validate that the instanceinfo contains all the necessary required fields
+        if (isBlank(info.getId())) {
+            return Response.status(400).entity("Missing instanceId").build();
+        } else if (isBlank(info.getHostName())) {
+            return Response.status(400).entity("Missing hostname").build();
+        } else if (isBlank(info.getIPAddr())) {
+            return Response.status(400).entity("Missing ip address").build();
+        } else if (isBlank(info.getAppName())) {
+            return Response.status(400).entity("Missing appName").build();
+        } else if (!appName.equals(info.getAppName())) {
+            return Response.status(400).entity("Mismatched appName, expecting " + appName + " but was " + info.getAppName()).build();
+        } else if (info.getDataCenterInfo() == null) {
+            return Response.status(400).entity("Missing dataCenterInfo").build();
+        } else if (info.getDataCenterInfo().getName() == null) {
+            return Response.status(400).entity("Missing dataCenterInfo Name").build();
+        }
 
-    /**
-     * 应用实例注册表
-     */
-    protected final PeerAwareInstanceRegistry registry;
-    /**
-     * Eureka-Server 配置
-     */
-    protected final EurekaServerConfig serverConfig;
-    /**
-     * Eureka-Client 配置
-     */
-    protected final EurekaClientConfig clientConfig;
-    /**
-     * Eureka-Server 编解码
-     */
-    protected final ServerCodecs serverCodecs;
-    /**
-     * 应用实例信息管理器
-     */
-    private final ApplicationInfoManager applicationInfoManager;
+        // AWS 相关，跳过
+        ......
 
-    /**
-     * Eureka-Server 集群节点数组
-     */
-    private volatile List<PeerEurekaNode> peerEurekaNodes = Collections.emptyList();
-    /**
-     * Eureka-Server 服务地址数组
-     */
-    private volatile Set<String> peerEurekaNodeUrls = Collections.emptySet();
+        // 注册应用实例信息
+        registry.register(info, "true".equals(isReplication));
 
-    /**
-     * 定时任务服务
-     */
-    private ScheduledExecutorService taskExecutor;
-
-    @Inject
-    public PeerEurekaNodes(
-            PeerAwareInstanceRegistry registry,
-            EurekaServerConfig serverConfig,
-            EurekaClientConfig clientConfig,
-            ServerCodecs serverCodecs,
-            ApplicationInfoManager applicationInfoManager) {
-        this.registry = registry;
-        this.serverConfig = serverConfig;
-        this.clientConfig = clientConfig;
-        this.serverCodecs = serverCodecs;
-        this.applicationInfoManager = applicationInfoManager;
+        // 返回 204 成功
+        return Response.status(204).build();  // 204 to be backwards compatible
     }
+
 }
 ```
 
-#### 集群节点启动
-
-调用 `PeerEurekaNodes#start()` 方法，集群节点启动，主要完成两个逻辑：
-
-- 初始化集群节点信息
-- 初始化固定周期( 默认：10 分钟，可配置 )更新集群节点信息的任务
+## PeerAwareInstanceRegistryImpl
 
 ```java
-public void start() {
-		//创建一个单线程定时任务线程池：线程的名称叫做Eureka-PeerNodesUpdater
-        taskExecutor = Executors.newSingleThreadScheduledExecutor(
-                new ThreadFactory() {
-                    @Override
-                    public Thread newThread(Runnable r) {
-                        Thread thread = new Thread(r, "Eureka-PeerNodesUpdater");
-                        thread.setDaemon(true);
-                        return thread;
-                    }
-                }
-        );
-        try {
-        	// 解析Eureka Server URL，并更新PeerEurekaNodes列表
-            updatePeerEurekaNodes(resolvePeerUrls());
-            //创建任务
-            //任务内容为：解析Eureka Server URL，并更新PeerEurekaNodes列表
-            Runnable peersUpdateTask = new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        updatePeerEurekaNodes(resolvePeerUrls());
-                    } catch (Throwable e) {
-                        logger.error("Cannot update the replica Nodes", e);
-                    }
-
-                }
-            };
-            //交给线程池执行，执行间隔10min
-            taskExecutor.scheduleWithFixedDelay(
-                    peersUpdateTask,
-                    serverConfig.getPeerEurekaNodesUpdateIntervalMs(),
-                    serverConfig.getPeerEurekaNodesUpdateIntervalMs(),
-                    TimeUnit.MILLISECONDS
-            );
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-        for (PeerEurekaNode node : peerEurekaNodes) {
-            logger.info("Replica node URL:  {}", node.getServiceUrl());
-        }
+@Override
+public void register(final InstanceInfo info, final boolean isReplication) {
+   // 租约过期时间
+   int leaseDuration = Lease.DEFAULT_DURATION_IN_SECS;
+   if (info.getLeaseInfo() != null && info.getLeaseInfo().getDurationInSecs() > 0) {
+       leaseDuration = info.getLeaseInfo().getDurationInSecs();
+   }
+   // 注册应用实例信息
+   super.register(info, leaseDuration, isReplication);
+   // Eureka-Server 复制
+   replicateToPeers(Action.Register, info.getAppName(), info.getId(), info, null, isReplication);
 }
 ```
 
-#### 更新集群节点信息
+### 租约-Lease
 
 ```java
-protected void updatePeerEurekaNodes(List<String> newPeerUrls) {
-    //计算需要移除的url= 原来-新配置。
-    Set<String> toShutdown = new HashSet<>(peerEurekaNodeUrls);
-    toShutdown.removeAll(newPeerUrls);
-    //计算需要增加的url= 新配置-原来的。
-    Set<String> toAdd = new HashSet<>(newPeerUrls);
-    toAdd.removeAll(peerEurekaNodeUrls);
-    //没有变化就不更新
-    if (toShutdown.isEmpty() && toAdd.isEmpty()) { // No change
-        return;
-    }
+public class Lease<T> {
 
-    List<PeerEurekaNode> newNodeList = new ArrayList<>(peerEurekaNodes);
-    // 删除需要移除url对应的节点。
-    if (!toShutdown.isEmpty()) {
-        int i = 0;
-        while (i < newNodeList.size()) {
-            PeerEurekaNode eurekaNode = newNodeList.get(i);
-            if (toShutdown.contains(eurekaNode.getServiceUrl())) {
-                newNodeList.remove(i);
-                eurekaNode.shutDown();
-            } else {
-                i++;
-            }
-        }
+    /**
+     * 实体 租约的持有者。在 Eureka-Server 里，暂时只有 InstanceInfo 使用。
+     */
+    private T holder;
+    /**
+     * 注册时间戳 注册( 创建 )租约时间戳。在构造方法里可以看租约对象的创建时间戳即为注册租约时间戳。
+     */
+    private long registrationTimestamp;
+    /**
+     * 开始服务时间戳
+     */
+    private long serviceUpTimestamp;
+    /**
+     * 取消注册时间戳
+     */
+    private long evictionTimestamp;
+    /**
+     * 最后更新时间戳
+     */
+    // Make it volatile so that the expiration task would see this quicker
+    private volatile long lastUpdateTimestamp;
+    /**
+     * 租约持续时长，单位：毫秒
+     */
+    private long duration;
+
+    public Lease(T r, int durationInSecs) {
+        holder = r;
+        registrationTimestamp = System.currentTimeMillis();
+        lastUpdateTimestamp = registrationTimestamp;
+        duration = (durationInSecs * 1000);
     }
-    // 添加需要增加的url对应的节点
-    if (!toAdd.isEmpty()) {
-        logger.info("Adding new peer nodes {}", toAdd);
-        for (String peerUrl : toAdd) {
-            newNodeList.add(createPeerEurekaNode(peerUrl));
-        }
-    }
-    //更新节点列表
-    this.peerEurekaNodes = newNodeList;
-    //更新节点url列表
-    this.peerEurekaNodeUrls = new HashSet<>(newPeerUrls);
+    
 }
 ```
-### init
 
-对等节点同步器的初始化。
+### super.register
 
 ```java
-public void init(PeerEurekaNodes peerEurekaNodes) throws Exception {
-        //统计最近X秒内的来自对等节点复制的续约数量(默认1秒)
-        this.numberOfReplicationsLastMin.start();
-        this.peerEurekaNodes = peerEurekaNodes;
-        //初始化返回结果缓存
-        initializedResponseCache();
-        //更新续约阀值
-        scheduleRenewalThresholdUpdateTask();
-        //初始化远程区域注册 相关信息
-        initRemoteRegionRegistry();
-        ...
-}
+  public void register(InstanceInfo registrant, int leaseDuration, boolean isReplication) {
+      try {
+          // 获取读锁
+          read.lock();
+          Map<String, Lease<InstanceInfo>> gMap = registry.get(registrant.getAppName());
+          // 增加 注册次数 到 监控
+          REGISTER.increment(isReplication);
+          // 获得 应用实例信息 对应的 租约
+          if (gMap == null) {
+             final ConcurrentHashMap<String, Lease<InstanceInfo>> gNewMap = new ConcurrentHashMap<String, Lease<InstanceInfo>>();
+             gMap = registry.putIfAbsent(registrant.getAppName(), gNewMap); // 添加 应用
+             if (gMap == null) { // 添加 应用 成功
+                 gMap = gNewMap;
+             }
+         }
+         Lease<InstanceInfo> existingLease = gMap.get(registrant.getId());
+         // Retain the last dirty timestamp without overwriting it, if there is already a lease
+         if (existingLease != null && (existingLease.getHolder() != null)) { // 已存在时，使用数据不一致的时间大的应用注册信息为有效的
+             Long existingLastDirtyTimestamp = existingLease.getHolder().getLastDirtyTimestamp(); // Server 注册的 InstanceInfo
+             Long registrationLastDirtyTimestamp = registrant.getLastDirtyTimestamp(); // Client 请求的 InstanceInfo
+             logger.debug("Existing lease found (existing={}, provided={}", existingLastDirtyTimestamp, registrationLastDirtyTimestamp);
+ 
+             // this is a > instead of a >= because if the timestamps are equal, we still take the remote transmitted
+             // InstanceInfo instead of the server local copy.
+             if (existingLastDirtyTimestamp > registrationLastDirtyTimestamp) {
+                 logger.warn("There is an existing lease and the existing lease's dirty timestamp {} is greater" +
+                         " than the one that is being registered {}", existingLastDirtyTimestamp, registrationLastDirtyTimestamp);
+                 logger.warn("Using the existing instanceInfo instead of the new instanceInfo as the registrant");
+                 registrant = existingLease.getHolder();
+             }
+         } else {
+             // The lease does not exist and hence it is a new registration
+             // 【自我保护机制】增加 `numberOfRenewsPerMinThreshold` 、`expectedNumberOfRenewsPerMin`
+             synchronized (lock) {
+                 if (this.expectedNumberOfRenewsPerMin > 0) {
+                     // Since the client wants to cancel it, reduce the threshold
+                     // (1
+                     // for 30 seconds, 2 for a minute)
+                     this.expectedNumberOfRenewsPerMin = this.expectedNumberOfRenewsPerMin + 2;
+                     this.numberOfRenewsPerMinThreshold =
+                             (int) (this.expectedNumberOfRenewsPerMin * serverConfig.getRenewalPercentThreshold());
+                 }
+             }
+             logger.debug("No previous lease information found; it is new registration");
+         }
+         // 创建 租约
+         Lease<InstanceInfo> lease = new Lease<InstanceInfo>(registrant, leaseDuration);
+         if (existingLease != null) { // 若租约已存在，设置 租约的开始服务的时间戳
+             lease.setServiceUpTimestamp(existingLease.getServiceUpTimestamp());
+         }
+         // 添加到 租约映射
+         gMap.put(registrant.getId(), lease);
+         // 添加到 最近注册的调试队列
+         synchronized (recentRegisteredQueue) {
+             recentRegisteredQueue.add(new Pair<Long, String>(
+                     System.currentTimeMillis(),
+                     registrant.getAppName() + "(" + registrant.getId() + ")"));
+         }
+         // 添加到 应用实例覆盖状态映射（Eureka-Server 初始化使用）
+         // This is where the initial state transfer of overridden status happens
+         if (!InstanceStatus.UNKNOWN.equals(registrant.getOverriddenStatus())) {
+             logger.debug("Found overridden status {} for instance {}. Checking to see if needs to be add to the "
+                             + "overrides", registrant.getOverriddenStatus(), registrant.getId());
+             if (!overriddenInstanceStatusMap.containsKey(registrant.getId())) {
+                 logger.info("Not found overridden id {} and hence adding it", registrant.getId());
+                 overriddenInstanceStatusMap.put(registrant.getId(), registrant.getOverriddenStatus());
+             }
+         }
+         InstanceStatus overriddenStatusFromMap = overriddenInstanceStatusMap.get(registrant.getId());
+         if (overriddenStatusFromMap != null) {
+             logger.info("Storing overridden status {} from map", overriddenStatusFromMap);
+             registrant.setOverriddenStatus(overriddenStatusFromMap);
+         }
+ 
+         // 获得应用实例最终状态，并设置应用实例的状态
+         // Set the status based on the overridden status rules
+         InstanceStatus overriddenInstanceStatus = getOverriddenInstanceStatus(registrant, existingLease, isReplication);
+         registrant.setStatusWithoutDirty(overriddenInstanceStatus);
+ 
+         // 设置 租约的开始服务的时间戳（只有第一次有效）
+         // If the lease is registered with UP status, set lease service up timestamp
+         if (InstanceStatus.UP.equals(registrant.getStatus())) {
+             lease.serviceUp();
+         }
+         // 设置 应用实例信息的操作类型 为 添加
+         registrant.setActionType(ActionType.ADDED);
+         // 添加到 最近租约变更记录队列
+         recentlyChangedQueue.add(new RecentlyChangedItem(lease));
+         // 设置 租约的最后更新时间戳
+         registrant.setLastUpdatedTimestamp();
+         // 设置 响应缓存 过期
+         invalidateCache(registrant.getAppName(), registrant.getVIPAddress(), registrant.getSecureVipAddress());
+         logger.info("Registered instance {}/{} with status {} (replication={})",
+                 registrant.getAppName(), registrant.getId(), registrant.getStatus(), isReplication);
+     } finally {
+         // 释放锁
+         read.unlock();
+     }
+ }
 ```
+
+## 客户端
+
+Service Provider要对外提供服务，一个很重要的步骤就是把自己注册到Eureka Server上。
+
+这部分的实现比较简单，只需要在启动时和实例状态变化时调用Eureka Server的接口注册即可。需要注意的是，需要确保配置eureka.client.registerWithEureka=true。
+
+
+![图片描述](assets/20161221134023319)
+
+# 服务续租-renew
+
+Renew（服务续约）操作由Service Provider定期调用，类似于heartbeat。主要是用来告诉Eureka Server Service Provider还活着，避免服务被剔除掉。接口实现如下图所示。
+
+可以看到，接口实现方式和register基本一致：首先更新自身状态，再同步到其它Peer。
+
+![图片描述](assets/20161221133856237)
+
+## 客户端
+
+Renew操作会在Service Provider端定期发起，用来通知Eureka Server自己还活着。这里有两个比较重要的配置需要注意一下：
+
+1. eureka.instance.leaseRenewalIntervalInSeconds
+    Renew频率。默认是30秒，也就是每30秒会向Eureka Server发起Renew操作；
+1. eureka.instance.leaseExpirationDurationInSeconds
+    服务失效时间。默认是90秒，也就是如果Eureka Server在90秒内没有接收到来自Service Provider的Renew操作，就会把Service Provider剔除。
+
+
+![图片描述](assets/20161221134038394)
+
+# 服务下线-Cancel
+
+Cancel（服务下线）一般在Service Provider shut down的时候调用，用来把自身的服务从Eureka Server中删除，以防客户端调用不存在的服务。接口实现如下图所示。
+
+![图片描述](assets/20161221133911458)
+
+
+
+
+
+## 客户端
+
+在Service Provider服务shut down的时候，需要及时通知Eureka Server把自己剔除，从而避免客户端调用已经下线的服务。
+
+逻辑本身比较简单，通过对方法标记@PreDestroy，从而在服务shut down的时候会被触发。
+
+![图片描述](assets/20161221134050550)
+
+
+
+# 获取注册信息-Fetch Registries
+
+Fetch Registries由Service Consumer调用，用来获取Eureka Server上注册的服务。
+
+为了提高性能，服务列表在Eureka Server会缓存一份，同时每30秒更新一次。
+
+![图片描述](assets/20161221133925693)
+
+## 客户端
+
+Service Consumer在启动时会从Eureka Server获取所有服务列表，并在本地缓存。需要注意的是，需要确保配置`eureka.client.shouldFetchRegistry`=true。
+
+![图片描述](assets/20161221134117477)
+
+## 定期更新
+
+由于在本地有一份缓存，所以需要定期更新，定期更新频率可以通过`eureka.client.registryFetchIntervalSeconds`配置。
+
+![图片描述](assets/20161221134129977)
+
+
+
+
+
+# 失效服务剔除-Eviction
+
+Eviction（失效服务剔除）用来定期（默认为每60秒）在Eureka Server检测失效的服务，检测标准就是超过一定时间没有Renew的服务。
+
+默认失效时间为90秒，也就是如果有服务超过90秒没有向Eureka Server发起Renew请求的话，就会被当做失效服务剔除掉。
+
+失效时间可以通过eureka.instance.leaseExpirationDurationInSeconds进行配置，定期扫描时间可以通过eureka.server.evictionIntervalTimerInMs进行配置。
+
+接口实现逻辑见下图：
+
+![图片描述](assets/20161221133939534-1594043386070)
+
+
+
+# 集群
+
+## 集群同步
+
+在前面的Register、Renew、Cancel接口实现中，我们看到了都会有replicateToPeers操作，这个就是用来做Peer之间的状态同步。
+
+通过这种方式，Service Provider只需要通知到任意一个Eureka Server后就能保证状态会在所有的Eureka Server中得到更新。
+
+具体实现方式其实很简单，就是接收到Service Provider请求的Eureka Server，把请求再次转发到其它的Eureka Server，调用同样的接口，传入同样的参数，除了会在header中标记isReplication=true，从而避免重复的replicate。
+
+1. Peer之间的状态是采用**异步**方式同步的，所以不保证节点间的状态一定是一致的，不过基本能保证最终状态是一致的。
+   
+1. 结合服务发现的场景，实际上也并不需要节点间的状态强一致。在一段时间内（比如30秒），节点A比节点B多一个服务实例或少一个服务实例，在业务上也是完全可以接受的（Service Consumer侧一般也会实现错误重试和负载均衡机制）。
+   
+1. 所以按照CAP理论，Eureka的选择就是放弃C，选择AP，最终一致性。
+## 节点发现
+
+那大家可能会有疑问，Eureka Server是怎么知道有多少Peer的呢？
+
+Eureka Server在启动后会调用EurekaClientConfig.getEurekaServerServiceUrls来获取所有的Peer节点，并且会定期更新。定期更新频率可以通过eureka.server.peerEurekaNodesUpdateIntervalMs配置。
+
+这个方法的默认实现是从配置文件读取，所以如果Eureka Server节点相对固定的话，可以通过在配置文件中配置来实现。
+
+如果希望能更灵活的控制Eureka Server节点，比如动态扩容/缩容，那么可以override getEurekaServerServiceUrls方法，提供自己的实现，比如我们的项目中会通过数据库读取Eureka Server列表。
+
+具体实现如下图所示：
+
+
+![图片描述](assets/20161221133954772)
+
+## 节点初始化
+
+最后再来看一下一个新的Eureka Server节点加进来，或者Eureka Server重启后，如何来做初始化，从而能够正常提供服务。
+
+具体实现如下图所示，简而言之就是启动时把自己当做是Service Consumer从其它Peer Eureka获取所有服务的注册信息。然后对每个服务，在自己这里执行Register，isReplication=true，从而完成初始化。
+
+![图片描述](assets/20161221134008663)
+
