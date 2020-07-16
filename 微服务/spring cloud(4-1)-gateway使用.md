@@ -115,7 +115,7 @@ http://网关地址：端口/服务中心注册 serviceId/具体的url
 
 这里就简单用两张图来解释一下吧。
 
-[![img](https://src.windmt.com/img/006tKfTcly1fr43eek154j316c0g4wgz.jpg)](https://src.windmt.com/img/006tKfTcly1fr43eek154j316c0g4wgz.jpg)
+![https://src.windmt.com/img/006tKfTcly1fr43eek154j316c0g4wgz.jpg](assets/006tKfTcly1fr43eek154j316c0g4wgz-1594201816767.jpg)
 
 当使用微服务构建整个 API 服务时，一般有许多不同的应用在运行，如上图所示的 `mst-user-service`、`mst-good-service` 和 `mst-order-service`，这些服务都需要对客户端的请求的进行 Authentication。最简单粗暴的方法就是像上图一样，为每个微服务应用都实现一套用于校验的过滤器或拦截器。
 
@@ -127,9 +127,7 @@ http://网关地址：端口/服务中心注册 serviceId/具体的url
 
 Spring Cloud Gateway 的 Filter 的生命周期不像 Zuul 的那么丰富，它只有两个：“pre” 和 “post”。
 
-[![image-20180508184542206](https://src.windmt.com/img/006tKfTcly1fr48yqx3ouj31kw17pn81.jpg)](https://src.windmt.com/img/006tKfTcly1fr48yqx3ouj31kw17pn81.jpg)
-
-
+![006tKfTcly1fr48yqx3ouj31kw17pn81](assets/006tKfTcly1fr48yqx3ouj31kw17pn81-1594202007088.jpg)
 
 “pre” 和 “post” 分别会在请求被执行前调用和被执行后调用，和 Zuul Filter 或 Spring Interceptor 中相关生命周期类似，但在形式上有些不一样。
 

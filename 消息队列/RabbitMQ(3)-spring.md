@@ -758,3 +758,143 @@ DMLC优势：
 - 相比于SMLC，DMLC更方便的可以再运行时动态的添加或者删除队列
 - 避免了rabbitmq客户端线程和消费者线程之间的上下文切换
 - 消费者之间共享线程，而SMLC则是为每个消费者提供专用线程
+
+
+
+# @RabbitListener源码分析
+
+[Spring整合rabbitmq实践（三）：源码-@RabbitListener实现过程](https://blog.csdn.net/weixin_38380858/article/details/84258747)
+
+进入@RabbitListener注解源码，有一段注释说明了这个注解是怎么被处理的：
+
+    Processing of {@code @RabbitListener} annotations is performed by registering a
+    {@link RabbitListenerAnnotationBeanPostProcessor}. This can be done manually or, more
+    conveniently, through the {@code rabbit:annotation-driven/} element or
+    {@link EnableRabbit} annotation.
+
+于是找到RabbitListenerAnnotationBeanPostProcessor，
+
+```java
+@Override
+public Object postProcessAfterInitialization(final Object bean, final String beanName) throws BeansException {
+    Class<?> targetClass = AopUtils.getTargetClass(bean);
+    final TypeMetadata metadata = this.typeCache.computeIfAbsent(targetClass, this::buildMetadata);
+    for (ListenerMethod lm : metadata.listenerMethods) {
+        for (RabbitListener rabbitListener : lm.annotations) {
+            processAmqpListener(rabbitListener, lm.method, bean, beanName);
+        }
+    }
+    if (metadata.handlerMethods.length > 0) {
+        processMultiMethodListeners(metadata.classAnnotations, metadata.handlerMethods, bean, beanName);
+    }
+    return bean;
+}
+```
+
+它实现了postProcessAfterInitialization方法，当bean初始化完成后，在这里会获取到这个bean的类用户自己定义的所有添加了@RabbitListener注解的方法，然后调用processAmqpListener()方法对这些方法进行处理，实际上是对方法上的@RabbitListener进行处理，一个方法上可以有多个@RabbitListener，会处理多次。
+获取@RabbitListener注解方法的具体过程看buildMetadata()方法：
+
+```java
+private TypeMetadata buildMetadata(Class<?> targetClass) {
+	Collection<RabbitListener> classLevelListeners = findListenerAnnotations(targetClass);
+	final boolean hasClassLevelListeners = classLevelListeners.size() > 0;
+	final List<ListenerMethod> methods = new ArrayList<>();
+	final List<Method> multiMethods = new ArrayList<>();
+	ReflectionUtils.doWithMethods(targetClass, method -> {
+		Collection<RabbitListener> listenerAnnotations = findListenerAnnotations(method);
+		if (listenerAnnotations.size() > 0) {
+			methods.add(new ListenerMethod(method,
+					listenerAnnotations.toArray(new RabbitListener[listenerAnnotations.size()])));
+		}
+		if (hasClassLevelListeners) {
+			RabbitHandler rabbitHandler = AnnotationUtils.findAnnotation(method, RabbitHandler.class);
+			if (rabbitHandler != null) {
+				multiMethods.add(method);
+			}
+		}
+	}, ReflectionUtils.USER_DECLARED_METHODS);
+	if (methods.isEmpty() && multiMethods.isEmpty()) {
+		return TypeMetadata.EMPTY;
+	}
+	return new TypeMetadata(
+			methods.toArray(new ListenerMethod[methods.size()]),
+			multiMethods.toArray(new Method[multiMethods.size()]),
+			classLevelListeners.toArray(new RabbitListener[classLevelListeners.size()]));
+}
+```
+在这个方法里面，找出了所有加了@RabbitListener注解的方法。
+
+其实通过这个方法可以看到@RabbitListener的另一种使用方式，可以在类上加@RabbitListener注解，然后在方法上加@RabbitHandler注解，如果采用这种方式会processMultiMethodListeners()方法来处理这些方法。
+
+这里我们只看processAmqpListener()方法，看它是怎么处理上面找到的这些方法的，将每一个加@RabbitListener注解的方法构造一个MethodRabbitListenerEndpoint，然后调用processListener()方法：
+
+
+```java
+protected void processAmqpListener(RabbitListener rabbitListener, Method method, Object bean, String beanName) {
+    Method methodToUse = checkProxy(method, bean);
+    MethodRabbitListenerEndpoint endpoint = new MethodRabbitListenerEndpoint();
+    endpoint.setMethod(methodToUse);
+    processListener(endpoint, rabbitListener, bean, methodToUse, beanName);
+}
+
+    protected void processListener(MethodRabbitListenerEndpoint endpoint, RabbitListener rabbitListener, Object bean,
+		    Object adminTarget, String beanName) {
+		...
+		
+		RabbitListenerContainerFactory<?> factory = null;
+		String containerFactoryBeanName = resolve(rabbitListener.containerFactory());
+		if (StringUtils.hasText(containerFactoryBeanName)) {
+			Assert.state(this.beanFactory != null, "BeanFactory must be set to obtain container factory by bean name");
+			try {
+				factory = this.beanFactory.getBean(containerFactoryBeanName, RabbitListenerContainerFactory.class);
+			}
+			catch (NoSuchBeanDefinitionException ex) {
+				throw new BeanInitializationException("Could not register rabbit listener endpoint on [" +
+						adminTarget + "] for bean " + beanName + ", no " + RabbitListenerContainerFactory.class.getSimpleName() + " with id '" +
+						containerFactoryBeanName + "' was found in the application context", ex);
+			}
+		}
+
+		this.registrar.registerEndpoint(endpoint, factory);
+
+```
+
+
+
+## registerListenerContainer()
+
+```java
+public void registerListenerContainer(RabbitListenerEndpoint endpoint, RabbitListenerContainerFactory<?> factory,
+                                      boolean startImmediately) {
+	Assert.notNull(endpoint, "Endpoint must not be null");
+	Assert.notNull(factory, "Factory must not be null");
+
+	String id = endpoint.getId();
+	Assert.hasText(id, "Endpoint id must not be empty");
+	synchronized (this.listenerContainers) {
+		Assert.state(!this.listenerContainers.containsKey(id),
+				"Another endpoint is already registered with id '" + id + "'");
+		MessageListenerContainer container = createListenerContainer(endpoint, factory);
+		this.listenerContainers.put(id, container);
+		if (StringUtils.hasText(endpoint.getGroup()) && this.applicationContext != null) {
+			List<MessageListenerContainer> containerGroup;
+			if (this.applicationContext.containsBean(endpoint.getGroup())) {
+				containerGroup = this.applicationContext.getBean(endpoint.getGroup(), List.class);
+			}
+			else {
+				containerGroup = new ArrayList<MessageListenerContainer>();
+				this.applicationContext.getBeanFactory().registerSingleton(endpoint.getGroup(), containerGroup);
+			}
+			containerGroup.add(container);
+		}
+		if (startImmediately) {
+			startIfNecessary(container);
+		}
+	}
+}
+```
+可见，注册endpoint，实际上就是RabbitListenerContainerFactory将每一个endpoint都创建成MessageListenerContainer（具体创建过程，由RabbitListenerContainerFactory类自己去完成），然后根据startImmediately参数判断是否调用startIfNecessary()方法立即启动MessageListenerContainer。
+
+## SimpleRabbitListenerContainerFactory
+
+**用一个BlockingQueue保存rabbitmq发过来还未来得及处理的消息，然后向Executor提交执行Runnable，Runnable中循环从BlockingQueue里面取消息。**

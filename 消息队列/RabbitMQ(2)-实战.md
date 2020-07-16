@@ -31,8 +31,8 @@ Connection 可以 用来创建多个 Channel 实例，但是 Channel 实例不�
 Channel 或者 Connection 中有个 isOpen 方法可以用来检测其是否己处于开启状态(关于 Channel 或者 Connectio口的状态可以参考 3.6 节)。但并不推荐在生产环境的代码上使用工 isOpen方法，这个方法的返回值依赖于 shutdownCause (参考下面的代码)的存在，有可能会产生竞争。
 ```java
 public boolean isOpen() {
-    synchronized(this.mon 工 tor) {
-    	return this . shutdownCause == null ;
+    synchronized(this.mononitor) {
+    	return this.shutdownCause == null ;
     }
 }
     
@@ -86,7 +86,7 @@ Exchange.DeclareOk exchangeDeclare(String exchange ,
                                    boolean autoDelete , boolean internal ,
                                    Map<String, Object> arguments) throws IOException ; 
 ```
-这个方法的返回值是 Exchange . Decla reOK ， 用来标识成功声明了一个交换器。
+这个方法的返回值是 Exchange . DeclareOK ， 用来标识成功声明了一个交换器。
 
 各个参数详细说明如下所述:
 

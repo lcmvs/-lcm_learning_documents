@@ -52,7 +52,30 @@ RabbitMQ 只要求在集群中至少有一个磁盘节点，所有其他节点�
 
 为了确保集群信息的可靠性，或者在不确定使用磁盘节点或者内存节点的时候，建议全部使用磁盘节点。 
 
+## 镜像队列
 
+镜像队列的声明方式与普通队列相比,仅仅是多了一个x-ha-policy参数.
+
+```java
+@Bean
+public Queue workQueue() {
+    return QueueBuilder
+            .durable(QueueProperty.WORK_QUEUE)
+            //声明镜像队列
+            .withArgument("x-ha-policy","all")
+            //最大长度
+            .withArgument("x-max-length", 10000)
+            //过期时间
+            .withArgument("x-message-ttl", 60*60*1000)
+            .withArgument("x-dead-letter-exchange", QueueProperty.DEAD_EXCHANGE)
+            .withArgument("x-dead-letter-routing-key", QueueProperty.DEAD_WORK_QUEUE)
+            .build();
+}
+```
+
+x-ha-policy的值代表的是,从队列拷贝存在的节点位置.
+　　设置为all,则此队列会在集群的所有节点上产生镜像队列,同时新增节点时,无需人工干预,自动添加拷贝.
+　　但,一般无需太多拷贝队列存在,因此有时需要能够手动指定在哪些节点上增加镜像.这样当然也可以(RabbitMQ2.7以后),但就需要硬编码了,且在某个声明的节点找不到(挂掉或者被用集群中移除)时,声明会失败.尽量不要这样声明,通用性不强.  
 
 # 网络分区
 

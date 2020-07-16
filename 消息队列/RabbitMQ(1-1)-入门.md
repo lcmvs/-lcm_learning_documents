@@ -538,6 +538,281 @@ public class DeadListener {
 }
 ```
 
+# 批量处理
+
+## 批量发送
+
+实际上，RabbitMQ Broker 存储的是**一条**消息。又或者说，**RabbitMQ 并没有提供批量接收消息的 API 接口**。批量发送消息是 Spring-AMQP 的 [SimpleBatchingStrategy](https://github.com/spring-projects/spring-amqp/blob/master/spring-rabbit/src/main/java/org/springframework/amqp/rabbit/batch/SimpleBatchingStrategy.java) 所封装提供：
+
+- 在 Producer 最终批量发送消息时，SimpleBatchingStrategy 会通过 [`#assembleMessage()`](https://github.com/spring-projects/spring-amqp/blob/master/spring-rabbit/src/main/java/org/springframework/amqp/rabbit/batch/SimpleBatchingStrategy.java#L141-L156) 方法，将批量发送的**多条**消息**组装**成一条“批量”消息，然后进行发送。
+- 在 Consumer 拉取到消息时，会根据[`#canDebatch(MessageProperties properties)`](https://github.com/spring-projects/spring-amqp/blob/master/spring-rabbit/src/main/java/org/springframework/amqp/rabbit/batch/SimpleBatchingStrategy.java#L158-L163) 方法，判断该消息是否为一条“批量”消息？如果是，则调用[`# deBatch(Message message, Consumer fragmentConsumer)`](https://github.com/spring-projects/spring-amqp/blob/master/spring-rabbit/src/main/java/org/springframework/amqp/rabbit/batch/SimpleBatchingStrategy.java#L165-L194) 方法，将一条“批量”消息**拆开**，变成**多条**消息。
+
+### BatchingRabbitTemplate
+
+```java
+@Configuration
+public class BatchingRabbitTemplateConfig {
+
+    @Autowired
+    MessageConverter messageConverter;
+
+    @Bean
+    public BatchingRabbitTemplate batchRabbitTemplate(ConnectionFactory connectionFactory) {
+        // 超过收集的消息数量的最大条数。
+        int batchSize = 64;
+        // 每次批量发送消息的最大内存,字节
+        int bufferLimit = 1024;
+        // 超过收集的时间的最大等待时长，单位：毫秒
+        int timeout = 1000;
+        // 创建 BatchingStrategy 对象，代表批量策略
+        BatchingStrategy batchingStrategy = new SimpleBatchingStrategy(batchSize, bufferLimit, timeout);
+
+        // 创建 TaskScheduler 对象，用于实现超时发送的定时器
+        TaskScheduler taskScheduler = new ConcurrentTaskScheduler();
+
+        // 创建 BatchingRabbitTemplate 对象
+        BatchingRabbitTemplate batchingRabbitTemplate = new BatchingRabbitTemplate(connectionFactory, batchingStrategy, taskScheduler);
+
+        batchingRabbitTemplate.setMessageConverter(messageConverter);
+
+        return batchingRabbitTemplate;
+    }
+
+}
+```
+
+使用
+
+```java
+@Component
+public class BatchingProducer {
+
+    @Autowired
+    BatchingRabbitTemplate batchingRabbitTemplate;
+
+    public void send(WorkMsg msg){
+        batchingRabbitTemplate.convertAndSend(QueueProperty.BATCH_QUEUE, msg);
+    }
+
+}
+```
+
+## 批量消费
+
+```java
+@Configuration
+public class BatchSimpleRabbitListenerContainerFactory {
+
+    @Bean(name = "myBatchSimpleRabbitListenerContainerFactory")
+    public SimpleRabbitListenerContainerFactory consumerBatchContainerFactory(
+            SimpleRabbitListenerContainerFactoryConfigurer configurer, ConnectionFactory connectionFactory) {
+        // 创建 SimpleRabbitListenerContainerFactory 对象
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        configurer.configure(factory, connectionFactory);
+        // 额外添加批量消费的属性
+        factory.setBatchListener(true);
+        factory.setBatchSize(10);
+        factory.setReceiveTimeout(1000L);
+        factory.setConsumerBatchEnabled(true);
+        return factory;
+    }
+
+}
+```
+
+使用
+
+```java
+@Component
+public class BatchingConsumer {
+
+    @RabbitListener(queues = QueueProperty.BATCH_QUEUE , containerFactory = "myBatchSimpleRabbitListenerContainerFactory")
+    public void batchListProcess(List<WorkMsg> list){
+        log.info("成功消费{{}}条消息:{{}}",list.size(),list);
+    }
+
+}
+```
+
+# 确认机制
+
+## 生产确认
+
+在 RabbitMQ 中，**默认**情况下，Producer 发送消息的方法，只保证将消息写入到 TCP Socket 中成功，并不保证消息发送到 RabbitMQ Broker 成功，并且持久化消息到磁盘成功。
+
+也就是说，我们上述的示例，Producer 在发送消息都不是绝对可靠，是存在丢失消息的可能性。
+
+不过不用担心，在 RabbitMQ 中，Producer 采用 Confirm 模式，实现发送消息的确认机制，以保证消息发送的可靠性。实现原理如下：
+
+- 首先，Producer 通过调用 [`Channel#confirmSelect()`](https://github.com/rabbitmq/rabbitmq-java-client/blob/master/src/main/java/com/rabbitmq/client/Channel.java#L1278-L1283) 方法，将 Channel 设置为 Confirm 模式。
+- 然后，在该 Channel 发送的消息时，需要先通过 [`Channel#getNextPublishSeqNo()`](https://github.com/rabbitmq/rabbitmq-java-client/blob/master/src/main/java/com/rabbitmq/client/Channel.java#L1285-L1290) 方法，给发送的消息分配一个唯一的 ID 编号(`seqNo` 从 1 开始递增)，再发送该消息给 RabbitMQ Broker 。
+- 之后，RabbitMQ Broker 在接收到该消息，并被路由到相应的队列之后，会发送一个包含消息的唯一编号(`deliveryTag`)的确认给 Producer 。
+
+通过 `seqNo` 编号，将 Producer 发送消息的“请求”，和 RabbitMQ Broker 确认消息的“响应”串联在一起。
+
+通过这样的方式，Producer 就可以知道消息是否成功发送到 RabbitMQ Broker 之中，保证消息发送的可靠性。不过要注意，整个执行的过程实际是**异步**，需要我们调用 [`Channel#waitForConfirms()`](https://github.com/rabbitmq/rabbitmq-java-client/blob/master/src/main/java/com/rabbitmq/client/Channel.java#L1293-L1329) 方法，**同步**阻塞等待 RabbitMQ Broker 确认消息的“响应”。
+
+也因此，Producer 采用 Confirm 模式时，有三种编程方式：
+
+- 【同步】普通 Confirm 模式：Producer 每发送一条消息后，调用 `Channel#waitForConfirms()` 方法，等待服务器端 Confirm 。
+
+- 【同步】批量 Confirm 模式：Producer 每发送一批消息后，调用`Channel#waitForConfirms()` 方法，等待服务器端 Confirm 。
+
+  > 本质上，和「普通 Confirm 模式」是一样的。
+
+- 【异步】异步 Confirm 模式：Producer 提供一个回调方法，RabbitMQ Broker 在 Confirm 了一条或者多条消息后，Producer 会回调这个方法。
+
+```java
+`// CachingConnectionFactory#ConfirmType.javapublic enum ConfirmType {	/**	 * Use {@code RabbitTemplate#waitForConfirms()} (or {@code waitForConfirmsOrDie()}	 * within scoped operations.	 */	SIMPLE, // 使用同步的 Confirm 模式	/**	 * Use with {@code CorrelationData} to correlate confirmations with sent	 * messsages.	 */	CORRELATED, // 使用异步的 Confirm 模式	/**	 * Publisher confirms are disabled (default).	 */	NONE // 不使用 Confirm 模式}`
+```
+
+### 同步确认
+
+在 RabbitTemplate 提供的 API 方法中，如果 Producer 要使用同步的 Confirm 模式，需要调用 `#invoke(action, acks, nacks)` 方法。代码如下：
+
+```java
+`// RabbitOperations.java// RabbitTemplate 实现了 RabbitOperations 接口/** * Invoke operations on the same channel. * If callbacks are needed, both callbacks must be supplied. * @param action the callback. * @param acks a confirm callback for acks. * @param nacks a confirm callback for nacks. * @param <T> the return type. * @return the result of the action method. * @since 2.1 */@Nullable<T> T invoke(OperationsCallback<T> action, @Nullable com.rabbitmq.client.ConfirmCallback acks,		@Nullable com.rabbitmq.client.ConfirmCallback nacks);`
+```
+
+- 因为 Confirm 模式需要基于**相同** Channel ，所以我们需要使用该方法。
+
+- 在方法参数 `action` 中，我们可以自定义操作。
+
+- 在方法参数 `acks` 中，定义接收到 RabbitMQ Broker 的成功“响应”时的成回调。
+
+- 在方法参数 `nacks` 中，定义接收到 RabbitMQ Broker 的失败“响应”时的成回调。
+
+  > - 当消息最终得到确认之后，生产者应用便可以通过回调方法来处理该确认消息。
+  > - 如果 RabbitMQ 因为自身内部错误导致消息丢失，就会发送一条 nack 消息，生产者应用程序同样可以在回调方法中处理该 nack 消息。
+
+使用
+
+```java
+@Component
+public class SynConfirmProducer {
+
+    @Autowired
+    RabbitTemplate rabbitTemplate;
+
+    public void synProducer(WorkMsg msg){
+        rabbitTemplate.invoke(operations -> {
+            // 同步发送消息
+            operations.convertAndSend("error", "error", "test");
+            // 等待确认 timeout 参数，如果传递 0 ，表示无限等待
+            operations.waitForConfirms(0);
+            return null;
+        }, (deliveryTag, multiple) -> {
+        }, (deliveryTag, multiple) -> {
+            throw new RuntimeException("同步发送失败！");
+        });
+    }
+
+}
+```
+
+
+
+### 异步确认
+
+#### ConfirmCallback
+
+```java
+@Slf4j
+@Component
+public class MyConfirmCallback implements RabbitTemplate.ConfirmCallback {
+
+    @Override
+    public void confirm(CorrelationData correlationData, boolean ack, String cause) {
+        if (!ack) {
+            log.error("消息发送异常!");
+        } else {
+            log.info("发送者爸爸已经收到确认，correlationData={} ,ack={}, cause={}", correlationData, ack, cause);
+        }
+    }
+}
+```
+
+#### ReturnCallback
+
+当 Producer 成功发送消息到 RabbitMQ Broker 时，但是在通过 Exchange 进行**匹配不到** Queue 时，Broker 会将该消息回退给 Producer 。
+
+```java
+@Slf4j
+@Component
+public class MyReturnCallback implements RabbitTemplate.ReturnCallback {
+
+    @Override
+    public void returnedMessage(Message message, int replyCode, String replyText, String exchange, String routingKey) {
+        log.info("returnedMessage ===> replyCode={} ,replyText={} ,exchange={} ,routingKey={},message={}",
+                replyCode, replyText, exchange, routingKey,message);
+    }
+
+}
+```
+
+使用
+
+```java
+@Slf4j
+@Component
+public class AsynConfirmProducer {
+
+    @Autowired
+    MyConfirmCallback myConfirmCallback;
+
+    @Autowired
+    MyReturnCallback myReturnCallback;
+
+    @Autowired
+    RabbitTemplate rabbitTemplate;
+
+    public void synProducer(WorkMsg msg){
+        rabbitTemplate.setMandatory(true);
+        rabbitTemplate.setConfirmCallback(myConfirmCallback);
+        rabbitTemplate.setReturnCallback(myReturnCallback);
+        rabbitTemplate.convertAndSend(QueueProperty.DIRECT_EXCHANGE,"error", msg);
+    }
+
+}
+```
+
+
+
+## 消费确认
+
+在 RabbitMQ 中，Consumer 有两种消息确认的方式：
+
+- 方式一，自动确认。
+- 方式二，手动确认。
+
+对于**自动确认**的方式，RabbitMQ Broker 只要将消息写入到 TCP Socket 中成功，就认为该消息投递成功，而无需 Consumer **手动确认**。
+
+对于**手动确认**的方式，RabbitMQ Broker 将消息发送给 Consumer 之后，由 Consumer **手动确认**之后，才任务消息投递成功。
+
+实际场景下，因为自动确认存在可能**丢失消息**的情况，所以在对**可靠性**有要求的场景下，我们基本采用手动确认。当然，如果允许消息有一定的丢失，对**性能**有更高的产经下，我们可以考虑采用自动确认。
+
+```java
+// AcknowledgeMode.java
+
+/**
+ * No acks - {@code autoAck=true} in {@code Channel.basicConsume()}.
+ */
+NONE, // 对应 Consumer 的自动确认
+
+/**
+ * Manual acks - user must ack/nack via a channel aware listener.
+ */
+MANUAL, // 对应 Consumer 的手动确认，由开发者在消费逻辑中，手动进行确认。
+
+/**
+ * Auto - the container will issue the ack/nack based on whether
+ * the listener returns normally, or throws an exception.
+ * <p><em>Do not confuse with RabbitMQ {@code autoAck} which is
+ * represented by {@link #NONE} here</em>.
+ */
+AUTO; // 对应 Consumer 的手动确认，在消费消息完成（包括正常返回、和抛出异常）后，由 Spring-AMQP 框架来“自动”进行确认。
+```
+
 # spring boot参数
 
 ```properties

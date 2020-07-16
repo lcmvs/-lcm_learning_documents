@@ -25,16 +25,3 @@ taskkill -pid 47436 -f
 
 
 
-远程控制
-
-使用win+r，然后输入mstsc，远程桌面账号密码：wy/wy@123456
-
-www.gdmcmc.net:9999
-
-![img](file:///C:\Users\mcmc\Documents\Tencent Files\1264221821\Image\C2C\@J(U5L_ILOA82ED33KL_)7E.png)
-
-
-
-172.18.98.29
-
-账号：mcuser，密码：mcmc#1918或者mcmc!1918
