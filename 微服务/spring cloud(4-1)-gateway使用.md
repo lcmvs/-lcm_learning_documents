@@ -847,3 +847,21 @@ redis.call("setex", timestamp_key, ttl, now)
 
 return { allowed_num, new_tokens }
 ```
+
+- 第 1 至 2 行 ：KEYS 方法参数 ：
+  - 第一个参数 ：`request_rate_limiter.${id}.tokens` ，令牌桶**剩余**令牌数。
+  - 第二个参数 ：`request_rate_limiter.${id}.timestamp` ，令牌桶**最后**填充令牌时间，单位：秒。
+- 第 4 至 7 行 ：ARGV 方法参数 ：
+  - 第一个参数 ：`replenishRate` 。
+  - 第二个参数 ：`burstCapacity` 。
+  - 第三个参数 ：得到从 `1970-01-01 00:00:00` 开始的秒数。
+  - 第四个参数 ：消耗令牌数量，默认 1 。
+- 第 9 行 ：计算令牌桶填充**满**令牌需要多久时间，单位：秒。
+- 第 10 行 ：计算 `request_rate_limiter.${id}.tokens` / `request_rate_limiter.${id}.timestamp` 的 **ttl** 。`* 2` 保证时间充足。
+- 第 12 至 20 行 ：调用 `get` 命令，获得令牌桶**剩余**令牌数( `last_tokens` ) ，令牌桶**最后**填充令牌时间(`last_refreshed`) 。
+- 第 22 至 23 行 ：填充令牌，计算**新**的令牌桶**剩余**令牌数( `filled_tokens` )。填充不超过令牌桶令牌**上限**。
+- 第 24 至 30 行 ：获取令牌是否成功。
+  - 若**成功**，令牌桶**剩余**令牌数(`new_tokens`) **减**消耗令牌数( `requested` )，并设置获取成功( `allowed_num = 1` ) 。
+  - 若**失败**，设置获取失败( `allowed_num = 0` ) 。
+- 第 32 至 33 行 ：设置令牌桶**剩余**令牌数( `new_tokens` ) ，令牌桶**最后**填充令牌时间(`now`) 。
+- 第 35 行 ：返回数组结果，`[是否获取令牌成功, 剩余令牌数]` 。

@@ -162,3 +162,16 @@ Zuul 2.x 核心功能：
 - Spring Cloud Gateway、Zuul2 的性能差不多，大概是直连的40%；
 - OpenResty、Kong 差不多，大概是直连的 60-70%；
 - 大并发下，例如模拟 200 并发用户、1000 并发用户时，Zuul2 会有很大概率返回出错。
+
+
+
+## 性能测试
+
+https://github.com/spencergibb/spring-cloud-gateway-bench
+
+| Proxy    | Avg Latency | Avg Req/Sec/Thread |
+| -------- | ----------- | ------------------ |
+| gateway  | 6.61ms      | 3.24k              |
+| linkered | 7.62ms      | 2.82k              |
+| zuul     | 12.56ms     | 2.09k              |
+| none     | 2.09ms      | 11.77k             |

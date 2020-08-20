@@ -14,6 +14,16 @@ zookeeper
 Kafka
 分布式123
 
+## 8月份的计划
+
+maven 完整的写个文档
+
+logback 完整的写个文档，日志相关的
+
+slfj 写个简单的注解文档
+
+junit 完整的写个文档，测试相关的
+
 # JDK
 
 ## 集合
@@ -77,6 +87,10 @@ tryLock(timeout)实现细节？
 
 
 ### ThreadLocal
+
+源码
+
+ThreadLocalMap
 
 弱引用？自动回收？内存泄漏？
 

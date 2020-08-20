@@ -120,8 +120,9 @@ pool-2-thread-1:2
 ThreadLocal主要通过ThreadLocalMap实现，每个Thread类中都有一个属性ThreadLocalMap，默认null，第一次添加键值对的时候，会new一个对象，key为ThreadLocal，value为线程本地变量值。
 
 ```java
-//Thread.java
-ThreadLocal.ThreadLocalMap threadLocals = null;
+public class Thread implements Runnable {
+	ThreadLocal.ThreadLocalMap threadLocals = null;
+}
 ```
 
 

@@ -6,6 +6,18 @@
 
 [Spring IoC源码分析(注解版) ](https://zengbiaobiao.com/article/detail/28)
 
+[Spring源码研究之@Configuration](https://blog.csdn.net/lqzkcx3/article/details/78409305)
+
+	invokeBeanFactoryPostProcessors
+		ConfigurationClassPostProcessor：如在配置类上添加了 @ComponentScan注解，那么会进行包扫描，指定包下的所有添加了 @Component, @Service等注解的类全部注册进来，
+		如果扫描到了配置类，则递归处理，继续分析配置类
+		 @Import 注解处理
+		 @Bean 方法处理
+	
+	finishBeanFactoryInitialization：实例化所有非lazy-init的singleton bean，并执行与Spring Bean生命周期相关的方法。
+		createBeanInstance 大致是根据RootBeanDefinition找到其类型classType，然后再获取其构造函数，然后根据构造函数使用反射动态创建出一个bean实例
+	initializeBean 初始化bean，bean的生命周期，
+		BeanFactoryPostProcessor 如AutowiredAnnotationBeanPostProcessor 实现 @Autowired
 # 核心概念
 
 ## BeanDefinition
@@ -749,8 +761,6 @@ BeanPostProcessor也是Spring提供的另一个有用接口，所有的BeanPostP
 
 # ConfigurationClassPostProcessor
 
-[Spring源码研究之@Configuration](https://blog.csdn.net/lqzkcx3/article/details/78409305)
-
 ConfigurationClassPostProcessor也是一个BeanFactory后置处理器。
 
 这个类是AnnotationConfigApplicationContext构造函数中，帮我们注册进来的。
@@ -975,4 +985,3 @@ private void loadBeanDefinitionsForBeanMethod(BeanMethod beanMethod) {
     }
 ```
 
-## 

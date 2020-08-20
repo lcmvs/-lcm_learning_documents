@@ -115,7 +115,7 @@ region 和 zone（或者 Availability Zone）均是亚马逊网络服务 (AWS) �
 
 Service Provider 本质上是一个 Eureka Client。它启动时，会调用服务注册方法，向 Eureka Server 注册自己的信息。Eureka Server 会维护一个已注册服务的列表，这个列表为一个嵌套的 HashMap：
 
-```
+```java
 private final ConcurrentHashMap<String, Map<String, Lease<InstanceInfo>>> registry
         = new ConcurrentHashMap<String, Map<String, Lease<InstanceInfo>>>();
 ```

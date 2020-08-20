@@ -1,4 +1,4 @@
-
+[Spring源码解析-AutowiredAnnotationBeanPostProcessor依赖注入](https://my.oschina.net/wang5v/blog/2999560)
 
 # 生命周期
 
@@ -8,8 +8,7 @@
 2． Spring将值和bean的引用注入到bean对应的属性中；
 3． 如果bean实现了BeanNameAware接口， Spring将bean的ID传递给setBean-Name()方法；
 4． 如果bean实现了BeanFactoryAware接口， Spring将调用setBeanFactory()方法， 将BeanFactory容器实例传入；
-5． 如果bean实现了ApplicationContextAware接口， Spring将调用setApplicationContext()方法， 将bean所在的应用上下文的
-引用传入进来；
+5． 如果bean实现了ApplicationContextAware接口， Spring将调用setApplicationContext()方法， 将bean所在的应用上下文的引用传入进来；
 6． 如果bean实现了BeanPostProcessor接口， Spring将调用它们的post-ProcessBeforeInitialization()方法；
 7． 如果bean实现了InitializingBean接口， Spring将调用它们的after-PropertiesSet()方法。 类似地， 如果bean使用initmethod声明了初始化方法， 该方法也会被调用；
 8． 如果bean实现了BeanPostProcessor接口， Spring将调用它们的post-ProcessAfterInitialization()方法；
@@ -242,6 +241,101 @@ public class SpringLifeCycleProcessor implements BeanPostProcessor {
             LOGGER.info("SpringLifeCycleProcessor end beanName={}",beanName);
         }
         return bean;
+    }
+}
+```
+
+## AutowiredAnnotationBeanPostProcessor
+
+AutowiredAnnotationBeanPostProcessor是BeanPostProcessor的实现类，能够自动装配被注解**Autowired、Value**注解的属性、setter方法以及配置方法，这些类成员能够被自动的检测到并注入。当然，AutowiredAnnotationBeanPostProcessor还支持JSR-330的**Inject**注解。简单来讲，AutowiredAnnotationBeanPostProcessor就是个依赖注入的后置处理器。
+
+AutowiredAnnotationBeanPostProcessor只提供一个构造方法，该构造法设置了AutowiredAnnotationBeanPostProcessor处理器能够支持哪些注解，默认情况下支持3种**Autowired、Value以及Inject**，构造方法如下：
+
+```java
+public AutowiredAnnotationBeanPostProcessor() {
+		this.autowiredAnnotationTypes.add(Autowired.class);
+		this.autowiredAnnotationTypes.add(Value.class);
+		try {
+			this.autowiredAnnotationTypes.add((Class<? extends Annotation>)
+					ClassUtils.forName("javax.inject.Inject", AutowiredAnnotationBeanPostProcessor.class.getClassLoader()));
+			logger.info("JSR-330 'javax.inject.Inject' annotation found and supported for autowiring");
+		}
+		catch (ClassNotFoundException ex) {
+			// JSR-330 API not available - simply skip.
+		}
+	}
+```
+
+AutowiredAnnotationBeanPostProcessor也支持自定义注解的发现，AutowiredAnnotationBeanPostProcessor类提供了两个方法来进行修改，如下：
+
+```java
+public void setAutowiredAnnotationType(Class<? extends Annotation> autowiredAnnotationType) {
+		Assert.notNull(autowiredAnnotationType, "'autowiredAnnotationType' must not be null");
+		this.autowiredAnnotationTypes.clear();
+		this.autowiredAnnotationTypes.add(autowiredAnnotationType);
+	}
+
+	
+	public void setAutowiredAnnotationTypes(Set<Class<? extends Annotation>> autowiredAnnotationTypes) {
+		Assert.notEmpty(autowiredAnnotationTypes, "'autowiredAnnotationTypes' must not be empty");
+		this.autowiredAnnotationTypes.clear();
+		this.autowiredAnnotationTypes.addAll(autowiredAnnotationTypes);
+	}
+```
+
+### 查找目标类的注入属性及方法
+
+```java
+public void postProcessMergedBeanDefinition(RootBeanDefinition beanDefinition, Class<?> beanType, String beanName) {
+    InjectionMetadata metadata = this.findAutowiringMetadata(beanName, beanType, (PropertyValues)null);
+    metadata.checkConfigMembers(beanDefinition);
+}
+
+private InjectionMetadata findAutowiringMetadata(String beanName, Class<?> clazz, @Nullable PropertyValues pvs) {
+    // 获取bean的缓存key.
+    String cacheKey = StringUtils.hasLength(beanName) ? beanName : clazz.getName();
+    // 根据key获取缓存里面的依赖元数据
+    InjectionMetadata metadata = (InjectionMetadata)this.injectionMetadataCache.get(cacheKey);
+    if (InjectionMetadata.needsRefresh(metadata, clazz)) {
+        synchronized(this.injectionMetadataCache) {
+            metadata = (InjectionMetadata)this.injectionMetadataCache.get(cacheKey);
+            if (InjectionMetadata.needsRefresh(metadata, clazz)) {
+                if (metadata != null) {
+                    metadata.clear(pvs);
+                }
+				//创建依赖对象的元数据
+                metadata = this.buildAutowiringMetadata(clazz);
+                //放到缓存里面
+                this.injectionMetadataCache.put(cacheKey, metadata);
+            }
+        }
+    }
+
+    return metadata;
+}
+```
+
+
+
+
+
+
+
+### 依赖注入的入口
+
+当bean创建完后就会触发这个后置处理器的方法来执行bean里面的属性和方法的注入流程。参数bean其实就是创建好的要为其注入属性的**目标bean**，所以注入是在bean创建完后才执行的。
+
+```java
+public PropertyValues postProcessProperties(PropertyValues pvs, Object bean, String beanName) {
+    InjectionMetadata metadata = this.findAutowiringMetadata(beanName, bean.getClass(), pvs);
+
+    try {
+        metadata.inject(bean, beanName, pvs);
+        return pvs;
+    } catch (BeanCreationException var6) {
+        throw var6;
+    } catch (Throwable var7) {
+        throw new BeanCreationException(beanName, "Injection of autowired dependencies failed", var7);
     }
 }
 ```
